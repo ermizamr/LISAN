@@ -293,6 +293,33 @@ AMH_TO_ENG_POSTPROCESS = [
 
 # Afaan Oromo common conversational exact mappings
 ORM_TO_ENG_EXACT = {
+    # Universal Greetings & Broadcast Anchor Formulas
+    "harka fuune": "Greetings / Welcome.",
+    "harka fuune!": "Greetings / Welcome!",
+    "harka fuune akkam ooltan": "Greetings, good afternoon.",
+    "harka fuune akkam ooltan?": "Greetings, good afternoon.",
+    "harka fuune akkam ooltan kabajamtoota daawwattoota": "Greetings, good afternoon honored viewers.",
+    "harka fuune akkam ooltan kabajamtoota daawwattoota.": "Greetings, good afternoon honored viewers.",
+    "harka fuune akkam ooltan kabajamtoota daawwattoota keenya": "Greetings, good afternoon our honored viewers.",
+    "harka fuune akkam ooltan kabajamtoota daawwattoota keenya.": "Greetings, good afternoon our honored viewers.",
+    "harka fuune akkam bultan kabajamtoota daawwattoota": "Greetings, good morning honored viewers.",
+    "harka fuune akkam jirtu kabajamtoota daawwattoota": "Greetings, how are you honored viewers.",
+    "kabajamtoota daawwattoota": "Honored viewers",
+    "kabajamtoota daawwattoota keenya": "Our honored viewers",
+    "kabajamoo daawwattoota": "Honored viewers",
+    "kabajamoo daawwattoota keenya": "Our honored viewers",
+    "kabajamtoota dhaggeeffattoota": "Honored listeners",
+    "kabajamtoota dhaggeeffattoota keenya": "Our honored listeners",
+    "obn oduu yeroo kanaa kan isiniif dhiyeessu mulaatuu dha": "Presenting this hour's OBN news is Mulatu.",
+    "obn oduu yeroo kanaa kan isiniif dhiyeessu mulaatuu dha.": "Presenting this hour's OBN news is Mulatu.",
+    "oduu yeroo kanaa kan isiniif dhiyeessu mulaatuu dha": "Presenting this hour's news is Mulatu.",
+    "oduu yeroo kanaa kan isiniif dhiyeessu mulaatuu dha.": "Presenting this hour's news is Mulatu.",
+    "oduuwwan maddeen biyya keessaa fi alaa irraa arganne qabannee dhihaanneerra": "We have brought to you the news we gathered from domestic and foreign sources.",
+    "oduuwwan maddeen biyya keessaa fi alaa irraa arganne qabannee dhihaanneerra.": "We have brought to you the news we gathered from domestic and foreign sources.",
+    "hanga yeroo muraasaatti waliin turaa isiniin jenna, gara oduu ijootitti ceena": "We ask you to stay with us as we head to the main news.",
+    "hanga yeroo muraasaatti waliin turaa isiniin jenna, gara oduu ijootitti ceena.": "We ask you to stay with us as we head to the main news.",
+    "gara oduu ijootitti ceena": "We proceed to the main news.",
+    "gara oduu ijootitti ceena.": "We proceed to the main news.",
     # Greetings & Courtesies
     "akkam": "Hello / How are you?",
     "akkam?": "Hello / How are you?",
@@ -702,6 +729,17 @@ ORM_TO_ENG_POSTPROCESS = [
     (r"(?i)\bhow did you spend the day\b", "good afternoon"),
     (r"(?i)^how is the existence\??$", "Hello, how are you?"),
     (r"(?i)^is health\??$", "Are you doing well?"),
+
+    # Broadcast & Media disambiguation (daawwattoota = viewers, NOT tourists)
+    (r"(?i)\bSuch\s+a\s+warm\s+welcome\s+from\s+the\s+tourists\s+of\s+this\s+time\s+is\s+especially\s+important\s+for\s+you\b",
+     "Greetings, good afternoon honored viewers. This hour's news is presented to you"),
+    (r"(?i)\bfrom\s+the\s+tourists\s+of\s+this\s+time\b", "to our viewers at this hour"),
+    (r"(?i)\btourists\s+of\s+this\s+time\b", "viewers of this hour"),
+    (r"(?i)\b(?:honored|respected|dear)\s+tourists\b", "honored viewers"),
+    (r"(?i)\btourists\b(?=.*(?:\bwe\s+have\s+(?:received|gathered|brought)\s+news\b|\bdomestic\s+and\s+foreign\b|\bmain\s+news\b|\bOBN\b|\bpresenting\b))", "viewers"),
+    (r"(?i)(?<=\b(?:viewers|listeners|broadcasting|OBN)\b.{0,50})\btourists\b", "viewers"),
+    (r"(?i)\bwe'll\s+take\s+you\s+to\s+the\s+main\s+news\b", "we proceed to the main news"),
+    (r"(?i)\btake\s+you\s+to\s+the\s+main\s+news\b", "head to the main news"),
 ]
 
 # Tigrinya -> English post-processing fixes
@@ -750,6 +788,33 @@ SOM_TO_ENG_POSTPROCESS = [
 
 # Afaan Oromo -> Amharic exact colloquial mappings
 ORM_TO_AMH_EXACT = {
+    # Universal Greetings & Broadcast Anchor Formulas
+    "harka fuune": "ሰላምታ አቅርበናል።",
+    "harka fuune!": "ሰላምታ አቅርበናል።",
+    "harka fuune akkam ooltan": "እንደምን ዋላችሁ።",
+    "harka fuune akkam ooltan?": "እንደምን ዋላችሁ።",
+    "harka fuune akkam ooltan kabajamtoota daawwattoota": "እንደምን ዋላችሁ ክቡራት ተመልካቾቻችን።",
+    "harka fuune akkam ooltan kabajamtoota daawwattoota.": "እንደምን ዋላችሁ ክቡራት ተመልካቾቻችን።",
+    "harka fuune akkam ooltan kabajamtoota daawwattoota keenya": "እንደምን ዋላችሁ ክቡራት ተመልካቾቻችን።",
+    "harka fuune akkam ooltan kabajamtoota daawwattoota keenya.": "እንደምን ዋላችሁ ክቡራት ተመልካቾቻችን።",
+    "harka fuune akkam bultan kabajamtoota daawwattoota": "እንደምን አደራችሁ ክቡራት ተመልካቾቻችን።",
+    "harka fuune akkam jirtu kabajamtoota daawwattoota": "እንደምን ናችሁ ክቡራት ተመልካቾቻችን።",
+    "kabajamtoota daawwattoota": "ክቡራት ተመልካቾች",
+    "kabajamtoota daawwattoota keenya": "ክቡራት ተመልካቾቻችን",
+    "kabajamoo daawwattoota": "ክቡራት ተመልካቾች",
+    "kabajamoo daawwattoota keenya": "ክቡራት ተመልካቾቻችን",
+    "kabajamtoota dhaggeeffattoota": "ክቡራት አድማጮች",
+    "kabajamtoota dhaggeeffattoota keenya": "ክቡራት አድማጮቻችን",
+    "obn oduu yeroo kanaa kan isiniif dhiyeessu mulaatuu dha": "ይህ የኦቢኤን የሰዓቱ ዜና ሲሆን አቅራቢው ሙላቱ ነው።",
+    "obn oduu yeroo kanaa kan isiniif dhiyeessu mulaatuu dha.": "ይህ የኦቢኤን የሰዓቱ ዜና ሲሆን አቅራቢው ሙላቱ ነው።",
+    "oduu yeroo kanaa kan isiniif dhiyeessu mulaatuu dha": "ይህ የሰዓቱ ዜና ሲሆን አቅራቢው ሙላቱ ነው።",
+    "oduu yeroo kanaa kan isiniif dhiyeessu mulaatuu dha.": "ይህ የሰዓቱ ዜና ሲሆን አቅራቢው ሙላቱ ነው።",
+    "oduuwwan maddeen biyya keessaa fi alaa irraa arganne qabannee dhihaanneerra": "ከሀገር ውስጥና ከውጭ ምንጮች ያገኘናቸውን ዜናዎች ይዘን ቀርበናል።",
+    "oduuwwan maddeen biyya keessaa fi alaa irraa arganne qabannee dhihaanneerra.": "ከሀገር ውስጥና ከውጭ ምንጮች ያገኘናቸውን ዜናዎች ይዘን ቀርበናል።",
+    "hanga yeroo muraasaatti waliin turaa isiniin jenna, gara oduu ijootitti ceena": "አብራችሁን ቆዩ እያልን፣ ወደ ዋና ዋና ዜናዎች እናልፋለን።",
+    "hanga yeroo muraasaatti waliin turaa isiniin jenna, gara oduu ijootitti ceena.": "አብራችሁን ቆዩ እያልን፣ ወደ ዋና ዋና ዜናዎች እናልፋለን።",
+    "gara oduu ijootitti ceena": "ወደ ዋና ዋና ዜናዎች እናልፋለን።",
+    "gara oduu ijootitti ceena.": "ወደ ዋና ዋና ዜናዎች እናልፋለን።",
     # Greetings & Courtesies
     "akkam": "ሰላም / እንዴት ነህ?",
     "akkam?": "ሰላም / እንዴት ነህ?",

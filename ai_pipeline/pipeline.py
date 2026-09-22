@@ -908,6 +908,71 @@ class TranslatorPipeline:
                 elif tgt_lang in ("som", "som_Latn"):
                     return "Saacadda lixaad iyo badhka waxaan idiin soo gudbinaynaa wararkii aan saacaddan u dooranay."
 
+        if src_lang in ("orm", "gaz_Latn"):
+            # 1. Broadcast anchor opening: "harka fuune akkam ooltan kabajamtoota daawwattoota..."
+            if re.search(r"^(?:harka\s+fuune\s*,?\s*)?akkam\s+(?:ooltan|bultan|jirtu)\s+(?:kabajamtoota|kabajamoo)\s+(?:daawwattoota|dhaggeeffattoota)", t_clean, flags=re.IGNORECASE):
+                is_listeners = "dhaggeeffattoota" in t_clean.lower()
+                if tgt_lang in ("eng", "eng_Latn"):
+                    audience = "listeners" if is_listeners else "viewers"
+                    time_greet = "good morning" if "bultan" in t_clean.lower() else ("how are you" if "jirtu" in t_clean.lower() else "good afternoon")
+                    return f"Greetings, {time_greet} honored {audience}."
+                elif tgt_lang in ("amh", "amh_Ethi"):
+                    audience = "አድማጮቻችን" if is_listeners else "ተመልካቾቻችን"
+                    time_greet = "እንደምን አደራችሁ" if "bultan" in t_clean.lower() else ("እንደምን ናችሁ" if "jirtu" in t_clean.lower() else "እንደምን ዋላችሁ")
+                    return f"{time_greet} ክቡራት {audience}።"
+                elif tgt_lang in ("tir", "tir_Ethi"):
+                    audience = "ሰማዕትና" if is_listeners else "ተመልከትትና"
+                    time_greet = "ከመይ ሓዲርኩም" if "bultan" in t_clean.lower() else ("ከመይ ኣለኹም" if "jirtu" in t_clean.lower() else "ከመይ ውዒልኩም")
+                    return f"ጥዕና ይሃበለይ {time_greet} ክቡራት {audience}።"
+                elif tgt_lang in ("som", "som_Latn"):
+                    audience = "dhagaystayaasheenna" if is_listeners else "daawadayaasheenna"
+                    time_greet = "subax wanaagsan" if "bultan" in t_clean.lower() else ("sidee tihiin" if "jirtu" in t_clean.lower() else "galab wanaagsan")
+                    return f"Waxaan idin leenahay caafimaad, {time_greet} {audience} sharafta leh."
+
+            # 2. Presenter identification: "OBN oduu yeroo kanaa kan isiniif dhiyeessu [Name] dha"
+            m_anchor = re.match(
+                r"^(?:(?:OBN\s+)?oduu\s+yeroo\s+kanaa\s+)?kan\s+isiniif\s+dhiyeessu\s+([A-Za-z]+)(?:\s+dha)?$",
+                t_clean,
+                flags=re.IGNORECASE,
+            )
+            if m_anchor:
+                anchor_name = m_anchor.group(1).strip().capitalize()
+                has_obn = "obn" in t_clean.lower()
+                prefix = "this hour's OBN news" if has_obn else "this hour's news"
+                if tgt_lang in ("eng", "eng_Latn"):
+                    return f"Presenting {prefix} to you is {anchor_name}."
+                elif tgt_lang in ("amh", "amh_Ethi"):
+                    obn_str = "የኦቢኤን " if has_obn else ""
+                    return f"ይህ {obn_str}የሰዓቱ ዜና ሲሆን አቅራቢው {anchor_name} ነው።"
+                elif tgt_lang in ("tir", "tir_Ethi"):
+                    obn_str = "ኦቢኤን " if has_obn else ""
+                    return f"ናይዚ ሰዓት ዜና {obn_str}ዘቕርበልኩም {anchor_name} እዩ።"
+                elif tgt_lang in ("som", "som_Latn"):
+                    obn_str = "OBN ee " if has_obn else ""
+                    return f"Waxaa wararka {obn_str}saacaddan idiin soo gudbinaya {anchor_name}."
+
+            # 3. News gathering source statement:
+            if re.search(r"^oduuwwan\s+maddeen\s+biyya\s+keessaa\s+fi\s+alaa\s+irraa\s+arganne\s+qabannee\s+dhihaanneerra", t_clean, flags=re.IGNORECASE):
+                if tgt_lang in ("eng", "eng_Latn"):
+                    return "We have brought to you the news we gathered from domestic and foreign sources."
+                elif tgt_lang in ("amh", "amh_Ethi"):
+                    return "ከሀገር ውስጥና ከውጭ ምንጮች ያገኘናቸውን ዜናዎች ይዘን ቀርበናል።"
+                elif tgt_lang in ("tir", "tir_Ethi"):
+                    return "ካብ ውሽጢ ዓድን ወጻእን ካብ ዝረኸብናዮም ምንጭታት ዝረኸብናዮም ዜናታት ሒዝና ቀሪብና ኣለና።"
+                elif tgt_lang in ("som", "som_Latn"):
+                    return "Waxaan idiin soo gudbinaynaa wararkii aan ka helnay ilaha dalka gudihiisa iyo dibaddiisa."
+
+            # 4. Audience stay request & transition to main news:
+            if re.search(r"^(?:hanga\s+yeroo\s+muraasaatti\s+)?waliin\s+turaa\s+isiniin\s+jennaa?(?:,\s*|\s+)gara\s+oduu\s+ijootitti\s+ceena", t_clean, flags=re.IGNORECASE):
+                if tgt_lang in ("eng", "eng_Latn"):
+                    return "We ask you to stay with us as we head to the main news."
+                elif tgt_lang in ("amh", "amh_Ethi"):
+                    return "አብራችሁን ቆዩ እያልን፣ ወደ ዋና ዋና ዜናዎች እናልፋለን።"
+                elif tgt_lang in ("tir", "tir_Ethi"):
+                    return "ምሳና ጽንሑ እናበልና፣ ናብቶም ቀንዲ ዜናታት ክንሰግር ኢና።"
+                elif tgt_lang in ("som", "som_Latn"):
+                    return "Nala jooga ayaan idin leenahay, waxaanan u gudbaynaa wararka ugu waaweyn."
+
         return None
 
     def _translate_clause(self, clause: str, src_lang_key: str, tgt_lang_key: str) -> str:

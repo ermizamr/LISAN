@@ -156,9 +156,30 @@ OROMO_SPOKEN_CONTRACTIONS = [
     (r"\bfayyaadhaa\b", "fayyaa dhaa"),
     (r"\bfayyummaa\b", "fayyumaa"),
     (r"\bfayummaa\b", "fayyumaa"),
-    (r"\bhospitaala\b", "hospitaala"),
     (r"\bakkam bulte\b", "akkam bulte"),
     (r"\bakkam oolte\b", "akkam oolte"),
+
+    # Broadcast & Spoken News Contractions / ASR fusions
+    (r"\bharkafuun\b", "harka fuune"),
+    (r"\bharka\s*fuun\b", "harka fuune"),
+    (r"\bakkamooltan\b", "akkam ooltan"),
+    (r"\bakkamooltani\b", "akkam ooltan"),
+    (r"\bakkamoolte\b", "akkam oolte"),
+    (r"\bakkambultan\b", "akkam bultan"),
+    (r"\bakkambultee\b", "akkam bulte"),
+    (r"\bakkamoolta\b", "akkam oolta"),
+    (r"\boobin\b", "OBN"),
+    (r"\bodu\b", "oduu"),
+    (r"\bdhiyeessaanftuu\b", "dhiyeessu"),
+    (r"\bdhiyeessitoota\b", "dhiyeessituu"),
+    (r"\bmulaatooti\b", "Mulaatuu dha"),
+    (r"\bqabanne\b", "qabannee"),
+    (r"\bdhiyaan\s+irraa\s+hangatu\b", "dhihaanneerra"),
+    (r"\bdhiyaan\s+irraa\b", "dhihaanneerra"),
+    (r"\bmuraasnii\s+waliin\s+turaa\s+isini\s+hi\s+jennaa\b", "hanga yeroo muraasaatti waliin turaa isiniin jenna,"),
+    (r"\bwaliin\s+turaa\s+isini\s+hi\s+jennaa\b", "waliin turaa isiniin jenna,"),
+    (r"\boduu\s+ijoo\s+siiitti\s+muutiinee\s+galma\b", "gara oduu ijootitti ceena"),
+    (r"\bmuutiinee\s+galma\b", "ceena"),
 ]
 
 # Tigrinya spoken contractions & phonetic variations
@@ -441,10 +462,37 @@ class SpeechRepair:
                     s += "።"
 
         elif lang_code in ("orm", "gaz_Latn"):
+            # Broadcast intro boundaries: Greeting + Audience address followed by station/program announcement
+            # e.g. "harka fuune akkam ooltan kabajamtoota daawwattoota OBN oduu..." -> "...daawwattoota. OBN oduu..."
+            s = re.sub(
+                r"(?i)\b((?:harka\s+fuune\s*,?\s*)?akkam\s+(?:ooltan|bultan|jirtu)\s+(?:kabajamtoota|kabajamoo)\s+(?:daawwattoota|dhaggeeffattoota)(?:\s+keenya)?)\s+(OBN|oduu|kan|har'a|amma)\b",
+                r"\1. \2",
+                s,
+            )
+            # Presenter identification before news description: "...kan isiniif dhiyeessu Mulaatuu dha. Oduuwwan..."
+            s = re.sub(
+                r"(?i)\b(kan\s+isiniif\s+dhiyeessu\s+[A-Za-z]+(?:\s+dha)?)\s+(oduuwwan|maddeen|oduu)\b",
+                r"\1. \2",
+                s,
+            )
+            # Delivery / presentation completion: "...qabannee dhihaanneerra. Hanga..."
+            s = re.sub(
+                r"(?i)\b(qabannee\s+dhihaanneerra|dhihaanneerra|dhiyeessineerra)\s*(?:[.]\s*)?(hanga|waliin|gara|oduu)\b",
+                r"\1. \2",
+                s,
+            )
+            # Transition clause: "...waliin turaa isiniin jenna, gara oduu..."
+            s = re.sub(
+                r"(?i)\b(waliin\s+turaa\s+isiniin\s+jennaa?)\s*(?:,?\s*)?(gara\s+oduu|oduu)\b",
+                r"\1, \2",
+                s,
+            )
+
             # Oromo clause boundaries & question marks
             s = re.sub(r"(?i)\b(akkam jirta|akkam jirtu|akkamitti|eessa jira|meeqa|eenyu|maaliif)\b(?!\?)", r"\1?", s)
             s = re.sub(r"(?i)(akkam|nagaa dhaa|fayyaa dhaa)\s+(akkam jirta|fayyaa dhaa|hospitaalichi|maaloo)", r"\1! \2", s)
             s = re.sub(r"(?i)(galatoomaa|galatoomi|nagaatti|dhiifama)\s+([A-Za-z])", r"\1. \2", s)
+            s = re.sub(r"\.{2,}", ".", s)
             if s and not s[-1] in ".?!:;\n":
                 if re.search(r"(?i)\b(akkam|eessa|meeqa|eenyu|maaliif|dhaa|jirta|jirtu)\??$", s):
                     s += "?"
