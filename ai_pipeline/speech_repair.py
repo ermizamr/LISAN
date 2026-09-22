@@ -168,18 +168,7 @@ OROMO_SPOKEN_CONTRACTIONS = [
     (r"\bakkambultan\b", "akkam bultan"),
     (r"\bakkambultee\b", "akkam bulte"),
     (r"\bakkamoolta\b", "akkam oolta"),
-    (r"\boobin\b", "OBN"),
     (r"\bodu\b", "oduu"),
-    (r"\bdhiyeessaanftuu\b", "dhiyeessu"),
-    (r"\bdhiyeessitoota\b", "dhiyeessituu"),
-    (r"\bmulaatooti\b", "Mulaatuu dha"),
-    (r"\bqabanne\b", "qabannee"),
-    (r"\bdhiyaan\s+irraa\s+hangatu\b", "dhihaanneerra"),
-    (r"\bdhiyaan\s+irraa\b", "dhihaanneerra"),
-    (r"\bmuraasnii\s+waliin\s+turaa\s+isini\s+hi\s+jennaa\b", "hanga yeroo muraasaatti waliin turaa isiniin jenna,"),
-    (r"\bwaliin\s+turaa\s+isini\s+hi\s+jennaa\b", "waliin turaa isiniin jenna,"),
-    (r"\boduu\s+ijoo\s+siiitti\s+muutiinee\s+galma\b", "gara oduu ijootitti ceena"),
-    (r"\bmuutiinee\s+galma\b", "ceena"),
 ]
 
 # Tigrinya spoken contractions & phonetic variations
@@ -462,32 +451,6 @@ class SpeechRepair:
                     s += "።"
 
         elif lang_code in ("orm", "gaz_Latn"):
-            # Broadcast intro boundaries: Greeting + Audience address followed by station/program announcement
-            # e.g. "harka fuune akkam ooltan kabajamtoota daawwattoota OBN oduu..." -> "...daawwattoota. OBN oduu..."
-            s = re.sub(
-                r"(?i)\b((?:harka\s+fuune\s*,?\s*)?akkam\s+(?:ooltan|bultan|jirtu)\s+(?:kabajamtoota|kabajamoo)\s+(?:daawwattoota|dhaggeeffattoota)(?:\s+keenya)?)\s+(OBN|oduu|kan|har'a|amma)\b",
-                r"\1. \2",
-                s,
-            )
-            # Presenter identification before news description: "...kan isiniif dhiyeessu Mulaatuu dha. Oduuwwan..."
-            s = re.sub(
-                r"(?i)\b(kan\s+isiniif\s+dhiyeessu\s+[A-Za-z]+(?:\s+dha)?)\s+(oduuwwan|maddeen|oduu)\b",
-                r"\1. \2",
-                s,
-            )
-            # Delivery / presentation completion: "...qabannee dhihaanneerra. Hanga..."
-            s = re.sub(
-                r"(?i)\b(qabannee\s+dhihaanneerra|dhihaanneerra|dhiyeessineerra)\s*(?:[.]\s*)?(hanga|waliin|gara|oduu)\b",
-                r"\1. \2",
-                s,
-            )
-            # Transition clause: "...waliin turaa isiniin jenna, gara oduu..."
-            s = re.sub(
-                r"(?i)\b(waliin\s+turaa\s+isiniin\s+jennaa?)\s*(?:,?\s*)?(gara\s+oduu|oduu)\b",
-                r"\1, \2",
-                s,
-            )
-
             # Oromo clause boundaries & question marks
             s = re.sub(r"(?i)\b(akkam jirta|akkam jirtu|akkamitti|eessa jira|meeqa|eenyu|maaliif)\b(?!\?)", r"\1?", s)
             s = re.sub(r"(?i)(akkam|nagaa dhaa|fayyaa dhaa)\s+(akkam jirta|fayyaa dhaa|hospitaalichi|maaloo)", r"\1! \2", s)
@@ -503,23 +466,6 @@ class SpeechRepair:
             # Normalize Ethiopic word dividers/colons (:: or ፡) to standard punctuation
             s = re.sub(r"::\s*", "። ", s)
             s = re.sub(r"፡+", " ", s)
-
-            # Broadcast intro boundaries: Greeting + Audience address followed by program announcement
-            # e.g. "ጥዕና ይሃበለይ ከመይ ዲኹም ዝኸበርኩም ተመልከትትና ልክዕ ሰዓት..." -> "...ተመልከትትና። ልክዕ ሰዓት..."
-            s = re.sub(
-                r"((?:ጥዕና\s+ይሃበለይ|ሰላም)\s*(?:፣|,)?\s*(?:ከመይ\s+(?:ዲኹም|ኣለኹም|ቀኒኹም|ዲኻ|ዲኺ))\s+(?:ዝኸበርኩም|ክቡራት|ዝኸበርክን)\s+(?:ተመልከትትና|ተዓዘብትና|ሰማዕትና|ህዝብና))\s+(ልክዕ|ሎሚ|ኣብ|ሰዓት|ነዚ|ቀጺልና)",
-                r"\1። \2",
-                s,
-            )
-            # Greeting alone followed by time or program lead
-            s = re.sub(
-                r"((?:ጥዕና\s+ይሃበለይ|ሰላም)\s*(?:፣|,)?\s*(?:ከመይ\s+(?:ዲኹም|ኣለኹም|ቀኒኹም)))\s+(ልክዕ|ሎሚ|ኣብ|ሰዓት|ነዚ)",
-                r"\1። \2",
-                s,
-            )
-            # Broadcast time announcements followed by content description
-            # e.g. "ልክዕ ሰዓት ሽዱሽተ ፈረቓን ነዚ ሰዓት..." -> "ልክዕ ሰዓት ሽዱሽተ ፈረቓን፣ ነዚ ሰዓት..."
-            s = re.sub(r"(ሰዓት\s+(?:[^\s]+)\s+(?:ፈረቓን|ንፈረቓን))\s+(ነዚ|ናይ)", r"\1፣ \2", s)
 
             # Standard conversational clause boundaries
             s = re.sub(r"(ከመይ ኣለኻ|ከመይ ኣለኺ|ከመይ ኣለኹም|ከመይ ዲኹም|ከመይ ዲኻ|ከመይ ዲኺ|ኣበይ ኣሎ|ኣበይ ኣላ|ክንዲ ምንታይ|መን እዩ|ስለምንታይ|ደሓንዶ|ደሓን ዲኻ)\s+(እዚ|እቲ|ኣነ|ንስኻ|ንስኺ|ግን|ደግሞ|ሎሚ)", r"\1? \2", s)

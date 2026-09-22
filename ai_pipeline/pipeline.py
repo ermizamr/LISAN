@@ -427,22 +427,30 @@ class DatasetEtHoheSTT:
 
         from transformers import AutoModelForCTC, AutoProcessor
         import os
+        from pathlib import Path
 
-        snapshot_dir = r"C:\Users\admin\.cache\huggingface\hub\models--snapwre--hohe-asr-amharic\snapshots\5c9eba39b2430df80d52a4dbc281b7350d034f5c"
-        weight_file = os.path.join(snapshot_dir, "model.safetensors")
+        # Dynamically locate cached snapshot from Hugging Face hub
+        snapshot_dir = None
+        hub_root = Path(os.path.expanduser("~")) / ".cache" / "huggingface" / "hub" / "models--snapwre--hohe-asr-amharic" / "snapshots"
+        if hub_root.exists():
+            snapshots = sorted(hub_root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+            for s in snapshots:
+                if (s / "model.safetensors").exists() and (s / "model.safetensors").stat().st_size > 2_000_000_000:
+                    snapshot_dir = str(s)
+                    break
 
-        if not os.path.isfile(weight_file) or os.path.getsize(weight_file) < 2_400_000_000:
-            return False
+        load_path = snapshot_dir if snapshot_dir else self.MODEL_NAME
+        is_local = bool(snapshot_dir)
 
-        console.print(f"[cyan]Loading Dataset.ET Hohe ASR ({self.MODEL_NAME})...[/cyan]")
+        console.print(f"[cyan]Loading Dataset.ET Hohe ASR ({load_path})...[/cyan]")
         try:
             import gc
             gc.collect()
             import torch
-            self.processor = AutoProcessor.from_pretrained(snapshot_dir, local_files_only=True)
+            self.processor = AutoProcessor.from_pretrained(load_path, local_files_only=is_local)
             self.model = AutoModelForCTC.from_pretrained(
-                snapshot_dir,
-                local_files_only=True,
+                load_path,
+                local_files_only=is_local,
                 torch_dtype=torch.float32,
             )
             self.model.eval()
@@ -890,89 +898,6 @@ class TranslatorPipeline:
                 elif tgt_lang in ("som", "som_Latn"):
                     return "Waxaan idin leenahay caafimaad, sidee tihiin dhagaystayaasheenna sharafta leh."
 
-            # 4. Broadcast announcement formulas:
-            # e.g. "ልክዕ ሰዓት ሽዱሽተ ፈረቓን ነዚ ሰዓት ዝመረጽናዮ ዜናታት ድማ ሒዝና ቀሪብና ኣለና"
-            m_broadcast_lead = re.match(
-                r"^ልክዕ\s+ሰዓት\s+(ሽዱሽተ|\d+)\s*(?:ን)?ፈረቓን\s*(?:፣|,)?\s*(?:ነዚ|ናይዚ)\s+ሰዓት\s+ዝመረጽናዮ\s+ዜናታት\s+(?:ድማ\s+)?ሒዝና\s+ቀሪብና\s+ኣለና$",
-                t_clean,
-            )
-            if m_broadcast_lead:
-                hour = m_broadcast_lead.group(1)
-                hour_str = "6:30" if hour in ("ሽዱሽተ", "6") else f"{hour}:30"
-                if tgt_lang in ("eng", "eng_Latn"):
-                    return f"At exactly {hour_str}, we have brought to you the news we selected for this hour."
-                elif tgt_lang in ("amh", "amh_Ethi"):
-                    return "ልክ በስድስት ሰዓት ተኩል ለዚህ ሰዓት የመረጥናቸውን ዜናዎች ይዘን ቀርበናል።"
-                elif tgt_lang in ("orm", "gaz_Latn"):
-                    return "Sa'aatii jaha fi walakkaa irratti oduu sa'aatii kanaaf filanne qabannee dhihaanneerra."
-                elif tgt_lang in ("som", "som_Latn"):
-                    return "Saacadda lixaad iyo badhka waxaan idiin soo gudbinaynaa wararkii aan saacaddan u dooranay."
-
-        if src_lang in ("orm", "gaz_Latn"):
-            # 1. Broadcast anchor opening: "harka fuune akkam ooltan kabajamtoota daawwattoota..."
-            if re.search(r"^(?:harka\s+fuune\s*,?\s*)?akkam\s+(?:ooltan|bultan|jirtu)\s+(?:kabajamtoota|kabajamoo)\s+(?:daawwattoota|dhaggeeffattoota)", t_clean, flags=re.IGNORECASE):
-                is_listeners = "dhaggeeffattoota" in t_clean.lower()
-                if tgt_lang in ("eng", "eng_Latn"):
-                    audience = "listeners" if is_listeners else "viewers"
-                    time_greet = "good morning" if "bultan" in t_clean.lower() else ("how are you" if "jirtu" in t_clean.lower() else "good afternoon")
-                    return f"Greetings, {time_greet} honored {audience}."
-                elif tgt_lang in ("amh", "amh_Ethi"):
-                    audience = "አድማጮቻችን" if is_listeners else "ተመልካቾቻችን"
-                    time_greet = "እንደምን አደራችሁ" if "bultan" in t_clean.lower() else ("እንደምን ናችሁ" if "jirtu" in t_clean.lower() else "እንደምን ዋላችሁ")
-                    return f"{time_greet} ክቡራት {audience}።"
-                elif tgt_lang in ("tir", "tir_Ethi"):
-                    audience = "ሰማዕትና" if is_listeners else "ተመልከትትና"
-                    time_greet = "ከመይ ሓዲርኩም" if "bultan" in t_clean.lower() else ("ከመይ ኣለኹም" if "jirtu" in t_clean.lower() else "ከመይ ውዒልኩም")
-                    return f"ጥዕና ይሃበለይ {time_greet} ክቡራት {audience}።"
-                elif tgt_lang in ("som", "som_Latn"):
-                    audience = "dhagaystayaasheenna" if is_listeners else "daawadayaasheenna"
-                    time_greet = "subax wanaagsan" if "bultan" in t_clean.lower() else ("sidee tihiin" if "jirtu" in t_clean.lower() else "galab wanaagsan")
-                    return f"Waxaan idin leenahay caafimaad, {time_greet} {audience} sharafta leh."
-
-            # 2. Presenter identification: "OBN oduu yeroo kanaa kan isiniif dhiyeessu [Name] dha"
-            m_anchor = re.match(
-                r"^(?:(?:OBN\s+)?oduu\s+yeroo\s+kanaa\s+)?kan\s+isiniif\s+dhiyeessu\s+([A-Za-z]+)(?:\s+dha)?$",
-                t_clean,
-                flags=re.IGNORECASE,
-            )
-            if m_anchor:
-                anchor_name = m_anchor.group(1).strip().capitalize()
-                has_obn = "obn" in t_clean.lower()
-                prefix = "this hour's OBN news" if has_obn else "this hour's news"
-                if tgt_lang in ("eng", "eng_Latn"):
-                    return f"Presenting {prefix} to you is {anchor_name}."
-                elif tgt_lang in ("amh", "amh_Ethi"):
-                    obn_str = "የኦቢኤን " if has_obn else ""
-                    return f"ይህ {obn_str}የሰዓቱ ዜና ሲሆን አቅራቢው {anchor_name} ነው።"
-                elif tgt_lang in ("tir", "tir_Ethi"):
-                    obn_str = "ኦቢኤን " if has_obn else ""
-                    return f"ናይዚ ሰዓት ዜና {obn_str}ዘቕርበልኩም {anchor_name} እዩ።"
-                elif tgt_lang in ("som", "som_Latn"):
-                    obn_str = "OBN ee " if has_obn else ""
-                    return f"Waxaa wararka {obn_str}saacaddan idiin soo gudbinaya {anchor_name}."
-
-            # 3. News gathering source statement:
-            if re.search(r"^oduuwwan\s+maddeen\s+biyya\s+keessaa\s+fi\s+alaa\s+irraa\s+arganne\s+qabannee\s+dhihaanneerra", t_clean, flags=re.IGNORECASE):
-                if tgt_lang in ("eng", "eng_Latn"):
-                    return "We have brought to you the news we gathered from domestic and foreign sources."
-                elif tgt_lang in ("amh", "amh_Ethi"):
-                    return "ከሀገር ውስጥና ከውጭ ምንጮች ያገኘናቸውን ዜናዎች ይዘን ቀርበናል።"
-                elif tgt_lang in ("tir", "tir_Ethi"):
-                    return "ካብ ውሽጢ ዓድን ወጻእን ካብ ዝረኸብናዮም ምንጭታት ዝረኸብናዮም ዜናታት ሒዝና ቀሪብና ኣለና።"
-                elif tgt_lang in ("som", "som_Latn"):
-                    return "Waxaan idiin soo gudbinaynaa wararkii aan ka helnay ilaha dalka gudihiisa iyo dibaddiisa."
-
-            # 4. Audience stay request & transition to main news:
-            if re.search(r"^(?:hanga\s+yeroo\s+muraasaatti\s+)?waliin\s+turaa\s+isiniin\s+jennaa?(?:,\s*|\s+)gara\s+oduu\s+ijootitti\s+ceena", t_clean, flags=re.IGNORECASE):
-                if tgt_lang in ("eng", "eng_Latn"):
-                    return "We ask you to stay with us as we head to the main news."
-                elif tgt_lang in ("amh", "amh_Ethi"):
-                    return "አብራችሁን ቆዩ እያልን፣ ወደ ዋና ዋና ዜናዎች እናልፋለን።"
-                elif tgt_lang in ("tir", "tir_Ethi"):
-                    return "ምሳና ጽንሑ እናበልና፣ ናብቶም ቀንዲ ዜናታት ክንሰግር ኢና።"
-                elif tgt_lang in ("som", "som_Latn"):
-                    return "Nala jooga ayaan idin leenahay, waxaanan u gudbaynaa wararka ugu waaweyn."
-
         return None
 
     def _translate_clause(self, clause: str, src_lang_key: str, tgt_lang_key: str) -> str:
@@ -1130,7 +1055,95 @@ class TranslatorPipeline:
                     return other
         except Exception:
             pass
-        return None
+    @staticmethod
+    def _split_audio_segments(
+        audio_data: np.ndarray,
+        sample_rate: int = 16000,
+        min_silence_duration: float = 0.35,
+        silence_threshold: float = 0.03,
+    ) -> list[np.ndarray]:
+        """
+        Segment speech by natural acoustic pauses (>350ms of relative silence).
+        Prevents ASR and NMT sequence length drift and attention hallucination
+        without requiring hardcoded sentence boundary regexes.
+        """
+        if len(audio_data) < sample_rate * 3.0:
+            return [audio_data]
+
+        peak = float(np.max(np.abs(audio_data)))
+        if peak < 0.005:
+            return []
+
+        thresh = max(0.005, peak * silence_threshold)
+        window_size = max(1, int(sample_rate * 0.02))  # 20ms
+        energy = np.convolve(np.abs(audio_data), np.ones(window_size, dtype=np.float32) / window_size, mode="same")
+        is_speech = energy >= thresh
+
+        min_silence_samples = int(sample_rate * min_silence_duration)
+        min_speech_samples = int(sample_rate * 0.5)
+
+        segments = []
+        seg_start = None
+        silence_count = 0
+
+        for i, speech in enumerate(is_speech):
+            if speech:
+                if seg_start is None:
+                    seg_start = max(0, i - int(sample_rate * 0.05))
+                silence_count = 0
+            else:
+                if seg_start is not None:
+                    silence_count += 1
+                    if silence_count >= min_silence_samples:
+                        seg_end = min(len(audio_data), i - silence_count + int(sample_rate * 0.05))
+                        if (seg_end - seg_start) >= min_speech_samples:
+                            segments.append(audio_data[seg_start:seg_end])
+                        seg_start = None
+                        silence_count = 0
+
+        if seg_start is not None:
+            seg_end = len(audio_data)
+            if (seg_end - seg_start) >= min_speech_samples:
+                segments.append(audio_data[seg_start:seg_end])
+
+        return segments if segments else [audio_data]
+
+    def _transcribe_robust(self, audio_path: str, src_lang_key: str) -> str:
+        """Transcribe audio file with automatic acoustic pause chunking for scalable multi-sentence speech."""
+        import soundfile as sf
+        import scipy.signal as sig
+        import tempfile
+
+        audio_data, sample_rate = sf.read(audio_path, dtype="float32", always_2d=False)
+        if audio_data.ndim > 1:
+            audio_data = audio_data.mean(axis=1)
+        if sample_rate != 16000:
+            num_samples = int(len(audio_data) * 16000 / sample_rate)
+            audio_data = sig.resample(audio_data, num_samples).astype(np.float32)
+            sample_rate = 16000
+
+        segments = self._split_audio_segments(audio_data, sample_rate)
+        if len(segments) <= 1:
+            return self._transcribe(audio_path, src_lang_key)
+
+        console.print(f"[cyan]🎙 Acoustic silence segmentation: identified {len(segments)} natural speech clauses[/cyan]")
+        transcribed_parts = []
+        term = "።" if src_lang_key in ("amh", "tir") else "."
+        for seg in segments:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                tmp_path = tmp.name
+            try:
+                sf.write(tmp_path, seg, sample_rate)
+                part = self._transcribe(tmp_path, src_lang_key).strip()
+                if part:
+                    if not part.endswith((".", "።", "?", "!")):
+                        part += term
+                    transcribed_parts.append(part)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+
+        return " ".join(transcribed_parts) if transcribed_parts else self._transcribe(audio_path, src_lang_key)
 
     def translate_audio(
         self,
@@ -1157,10 +1170,10 @@ class TranslatorPipeline:
 
         console.print(f"\n[bold]Pipeline: {src_lang['name']} → {tgt_lang['name']}[/bold]")
 
-        # Step 1: STT (routes to best model per language)
+        # Step 1: STT (routes to best model per language with acoustic pause chunking)
         t0 = time.time()
-        console.print("[cyan]Step 1: Transcribing speech...[/cyan]")
-        raw_transcribed = self._transcribe(audio_path, effective_src)
+        console.print("[cyan]Step 1: Transcribing speech (Dataset.ET / ASR)...[/cyan]")
+        raw_transcribed = self._transcribe_robust(audio_path, effective_src)
         from ai_pipeline.speech_repair import SpeechRepair
         transcribed = SpeechRepair.repair(raw_transcribed, effective_src)
         stt_time = time.time() - t0
