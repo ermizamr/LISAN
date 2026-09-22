@@ -57,7 +57,7 @@ LANGUAGES = {
         "native": "Afaan Oromoo",
         "nllb_code": "gaz_Latn",
         "whisper_code": "om",
-        "stt_model": "oromo",    # dedicated badrex/Ethio-ASR-oromo
+        "stt_model": "ethio_multilingual",    # badrex/Ethio-ASR-multilingual-600M
         "flag": "ET",
     },
     "som": {
@@ -65,15 +65,15 @@ LANGUAGES = {
         "native": "Af Soomaali",
         "nllb_code": "som_Latn",
         "whisper_code": "so",
-        "stt_model": "whisper",  # Whisper handles Somali well
+        "stt_model": "whisper",  # Whisper handles Somali
         "flag": "🇸🇴",
     },
     "tir": {
         "name": "Tigrinya",
         "native": "ትግርኛ",
         "nllb_code": "tir_Ethi",
-        "whisper_code": "am",
-        "stt_model": "tigrinya", # dedicated badrex/Ethio-ASR-tigrinya
+        "whisper_code": "ti",
+        "stt_model": "ethio_multilingual", # badrex/Ethio-ASR-multilingual-600M
         "flag": "🇪🇷",
     },
 }
@@ -141,9 +141,8 @@ class EthioMultilingualSTT:
     """Single Wav2Vec2Bert model covering Amharic, Oromo, and Tigrinya.
 
     Uses badrex/Ethio-ASR-multilingual-600M — same 606M architecture
-    as the language-specific models but trained across all 3 Ethiopian
-    languages. One load, three languages, ~2.4GB RAM (vs ~7.2GB for 3
-    separate models).
+    as the language-specific models but trained across all Ethiopian
+    languages (WAXAL / Dataset.ET). One load, three languages, ~2.4GB RAM.
 
     Language codes: 'am' (Amharic), 'om' (Oromo), 'ti' (Tigrinya)
     """
@@ -154,25 +153,58 @@ class EthioMultilingualSTT:
         self.processor = None
         self.model = None
 
-    def load(self):
+    def try_load(self) -> bool:
+        """Attempt to load Ethio-ASR multilingual model from local cache."""
+        if self.model is not None and self.processor is not None:
+            return True
+
         from transformers import Wav2Vec2BertForCTC, AutoProcessor
+        import os
+        from pathlib import Path
+
+        # Dynamically locate cached snapshot from Hugging Face hub
+        snapshot_dir = None
+        hub_root = Path(os.path.expanduser("~")) / ".cache" / "huggingface" / "hub" / "models--badrex--Ethio-ASR-multilingual-600M" / "snapshots"
+        if hub_root.exists():
+            snapshots = sorted(hub_root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+            for s in snapshots:
+                if (s / "model.safetensors").exists() and (s / "model.safetensors").stat().st_size > 2_000_000_000:
+                    snapshot_dir = str(s)
+                    break
+
+        load_path = snapshot_dir if snapshot_dir else self.MODEL_NAME
+        is_local = bool(snapshot_dir)
+
+        console.print(f"[cyan]Loading Ethiopian Multilingual ASR ({load_path})...[/cyan]")
         try:
-            self.processor = AutoProcessor.from_pretrained(self.MODEL_NAME, local_files_only=True)
-            self.model = Wav2Vec2BertForCTC.from_pretrained(self.MODEL_NAME, local_files_only=True)
+            import gc, torch
+            gc.collect()
+            self.processor = AutoProcessor.from_pretrained(load_path, local_files_only=is_local)
+            self.model = Wav2Vec2BertForCTC.from_pretrained(
+                load_path,
+                local_files_only=is_local,
+                torch_dtype=torch.float32,
+            )
             self.model.eval()
-            console.print("[green]✓ Ethiopian multilingual ASR loaded (Amharic · Oromo · Tigrinya)[/green]")
+            console.print("[green]✓ Ethiopian Multilingual ASR loaded (Amharic · Afaan Oromo · Tigrinya)[/green]")
+            return True
         except Exception as error:
-            console.print(f"[yellow]EthioMultilingualSTT local weights not cached ({error}). Fallback to Whisper.[/yellow]")
-            self.model = None
+            console.print(f"[yellow]EthioMultilingualSTT load failed: {error}[/yellow]")
+            return False
+
+    def load(self):
+        self.try_load()
 
     def transcribe(self, audio_path: str, language_code: str = "am") -> str:
         """Transcribe speech. language_code: 'am', 'om', or 'ti'."""
         import torch
         import soundfile as sf
         import scipy.signal as sig
+        import re
 
-        if self.model is None:
-            raise RuntimeError("EthioMultilingualSTT not loaded. Call load() first.")
+        if self.model is None or self.processor is None:
+            if not self.try_load():
+                raise RuntimeError("EthioMultilingualSTT not loaded. Weights missing from local cache.")
 
         audio, sample_rate = sf.read(audio_path, dtype="float32", always_2d=False)
         if audio.ndim > 1:
@@ -180,6 +212,10 @@ class EthioMultilingualSTT:
         if sample_rate != 16000:
             num_samples = int(len(audio) * 16000 / sample_rate)
             audio = sig.resample(audio, num_samples).astype(np.float32)
+
+        audio = WhisperSTT._trim_silence(audio, 16000)
+        if audio.size == 0:
+            return ""
 
         inputs = self.processor(
             audio, sampling_rate=16000, return_tensors="pt", padding=True
@@ -189,8 +225,7 @@ class EthioMultilingualSTT:
             logits = self.model(**inputs).logits
         predicted_ids = torch.argmax(logits, dim=-1)
         raw_text = self.processor.batch_decode(predicted_ids)[0].strip()
-        # Strip language token prefixes like [AMH], [ORM], [TIR]
-        import re
+        # Strip language token prefixes like [AMH], [ORM], [TIR], [SID], [WAL]
         return re.sub(r"^\[[A-Za-z]+\]\s*", "", raw_text).strip()
 
 
@@ -706,16 +741,13 @@ class TranslatorPipeline:
     def load_all(self):
         """Load all models. Call once at startup (e.g. app launch)."""
         t0 = time.time()
-        console.print(Panel("[bold cyan]Loading Ethiopian Translator (Dataset.ET)[/bold cyan]"))
+        console.print(Panel("[bold cyan]Loading Ethiopian Translator (Dataset.ET / Ethio-ASR)[/bold cyan]"))
         try:
-            import psutil
-            mem = psutil.virtual_memory()
-            if mem.available > 3_000_000_000:
-                self.hohe_stt.load()
-            else:
-                console.print(f"[yellow]Available RAM ({mem.available/1e9:.1f}GB) low. Deferring Dataset.ET Hohe ASR load to on-demand.[/yellow]")
+            # Pre-load EthioMultilingualSTT as universal Ethiopian ASR engine (~2.4GB RAM)
+            # Natively covers Amharic, Afaan Oromo, and Tigrinya with zero duplicate model overhead
+            self.ethio_stt.load()
         except Exception as e:
-            console.print(f"[yellow]Dataset.ET Hohe ASR load deferred ({e})[/yellow]")
+            console.print(f"[yellow]ASR pre-load note: {e}[/yellow]")
 
         self.stt.load()          # English + Somali STT (~200MB RAM)
         self.translator.load()   # NLLB-200 translation (~600MB RAM)
@@ -723,35 +755,32 @@ class TranslatorPipeline:
         self._loaded = True
         console.print(Panel(
             f"[bold green]Ready in {time.time()-t0:.0f}s[/bold green]\n"
-            f"[dim]5 languages · Dataset.ET official · 100% on-device offline[/dim]"
+            f"[dim]5 languages · Dataset.ET & Ethio-ASR official · 100% on-device offline[/dim]"
         ))
 
     def _transcribe(self, audio_path: str, src_lang_key: str) -> str:
-        """Route STT to the correct model for the given language."""
-        if src_lang_key == "amh":
-            if self.hohe_stt.model is None:
-                self.hohe_stt.try_load()
-            if self.hohe_stt.model is not None:
+        """Route STT to the correct model for the given language.
+        Whisper is strictly forbidden for Amharic, Oromo, and Tigrinya.
+        """
+        # 1. Ethiopian local languages: EthioMultilingualSTT (Amharic, Afaan Oromo, Tigrinya)
+        if src_lang_key in ("amh", "orm", "tir"):
+            # Check if Hohe was specifically pre-loaded for Amharic
+            if src_lang_key == "amh" and self.hohe_stt.model is not None:
                 return self.hohe_stt.transcribe(audio_path)
-            else:
-                return self.stt.transcribe(audio_path, "am")
 
-        stt_model = LANGUAGES[src_lang_key].get("stt_model", "whisper")
-        if stt_model in ("oromo", "tigrinya"):
             if self.ethio_stt.model is None:
-                try:
-                    self.ethio_stt.load()
-                except Exception:
-                    pass
+                self.ethio_stt.try_load()
             if self.ethio_stt.model is not None:
-                lang_code = LANGUAGES[src_lang_key]["whisper_code"] or "am"
+                lang_code = "am" if src_lang_key == "amh" else ("om" if src_lang_key == "orm" else "ti")
                 return self.ethio_stt.transcribe(audio_path, lang_code)
-            else:
-                whisper_lang = LANGUAGES[src_lang_key]["whisper_code"] or "en"
-                return self.stt.transcribe(audio_path, whisper_lang)
-        else:
-            whisper_lang = LANGUAGES[src_lang_key]["whisper_code"] or "en"
-            return self.stt.transcribe(audio_path, whisper_lang)
+            raise RuntimeError(
+                f"EthioMultilingualSTT failed to load for {src_lang_key}. "
+                "Whisper fallback is blocked for Horn of Africa languages."
+            )
+
+        # 2. English and Somali: Whisper
+        whisper_lang = LANGUAGES.get(src_lang_key, {}).get("whisper_code", "en")
+        return self.stt.transcribe(audio_path, whisper_lang)
 
     def _match_social_patterns(self, text: str, src_lang: str, tgt_lang: str) -> str | None:
         """Pattern-match conversational introductions, identity disclosures, and reciprocal inquiries."""
