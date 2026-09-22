@@ -1,0 +1,60 @@
+# Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Python cache & compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Logs and runtime diagnostics
+*.log
+*.err
+*.out
+scratch/
+
+# Model binaries & quantized weights (downloadable via scripts)
+models_optimized/
+onnx_models/
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.onnx
+*.tflite
+
+# Audio dumps & recordings
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+
+# Heavy raw datasets (>100MB) and SQLite temporary journals
+data/raw_bitext/
+data/*.db-shm
+data/*.db-wal
+
+# Flutter / Dart build artifacts & IDE files
+ethiopian_translator/.dart_tool/
+ethiopian_translator/build/
+ethiopian_translator/.flutter-plugins
+ethiopian_translator/.flutter-plugins-dependencies
+ethiopian_translator/.idea/
+ethiopian_translator/*.iml
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# IDE & OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

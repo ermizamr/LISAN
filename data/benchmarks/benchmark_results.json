@@ -1,0 +1,79 @@
+[
+  {
+    "src": "amh",
+    "tgt": "orm",
+    "samples_evaluated": 5,
+    "bleu": 2.79,
+    "chrf_plus_plus": 34.65,
+    "avg_latency_ms": 21054.8,
+    "sample_source": "የእስራኤል አየር ሃይል የተቃጣበትን የሚሳኤል እና የሞርታር ጥቃት ማላሽ ነው ሲል በጋዛ ሰርጥ ላይ ጥቃት መፈፀም ጀመረ።",
+    "sample_reference": "Humni qilleensaa Isiraa'el haleellaa misaayelaa fi ibbiddaa ciccimaa irra ga'eef deebii kennuuf holqoota gara gaazaa geessan irratti haleellaa ni bana.",
+    "sample_hypothesis": "Humni qilleensaa Israa'el haleellaa Miisaayilii fi Mortaariin gubameef sababa ta'uu isaatiin gara Kanaal Gazaatti weerara jalqabde."
+  },
+  {
+    "src": "amh",
+    "tgt": "tir",
+    "samples_evaluated": 5,
+    "bleu": 2.59,
+    "chrf_plus_plus": 19.28,
+    "avg_latency_ms": 12857.5,
+    "sample_source": "የእስራኤል አየር ሃይል የተቃጣበትን የሚሳኤል እና የሞርታር ጥቃት ማላሽ ነው ሲል በጋዛ ሰርጥ ላይ ጥቃት መፈፀም ጀመረ።",
+    "sample_reference": "ሓይሊ ኣየር እስራኤል ንዝተተኮሱ ሚሳይላትን ሞርታርን ግብረ መልሲ ኣብ ልዕሊ ካብ ጋዛ ናብ እስራኤል ዝወስዱ ናይ ውሽጣ ውሽጢ መተሓላለፍታት መጥቃዕቲ ፈንዩ።",
+    "sample_hypothesis": "ሓይሊ ኣየር እስራኤል ነቲ ዝተቃጸለ መጥቓዕቲ ሚሳኤልን ሞርታርን ብምግላጽ ኣብ መዕረፊ ጋዛ መጥቃዕቲ ጀሚሩ።"
+  },
+  {
+    "src": "amh",
+    "tgt": "som",
+    "samples_evaluated": 5,
+    "bleu": 16.08,
+    "chrf_plus_plus": 40.52,
+    "avg_latency_ms": 7481.2,
+    "sample_source": "የእስራኤል አየር ሃይል የተቃጣበትን የሚሳኤል እና የሞርታር ጥቃት ማላሽ ነው ሲል በጋዛ ሰርጥ ላይ ጥቃት መፈፀም ጀመረ።",
+    "sample_reference": "Ciidamada Cirka ee Israa’iil ayaa weerar ku qaaday marinnada dhulka hoostiisa ee Gaza, iyadoo ka jawaabaysa weerarrada gantaalaha iyo hoobiyayaasha lala beegsaday Israel.",
+    "sample_hypothesis": "Ciidamada Cirka ee Israel ayaa weerar ku qaaday kanaalka Gaza, iyagoo sheegey in ay sabab u tahay duqeynta Mishael iyo Mortar oo la gubay."
+  },
+  {
+    "src": "orm",
+    "tgt": "amh",
+    "samples_evaluated": 5,
+    "bleu": 5.45,
+    "chrf_plus_plus": 19.02,
+    "avg_latency_ms": 9408.7,
+    "sample_source": "Humni qilleensaa Isiraa'el haleellaa misaayelaa fi ibbiddaa ciccimaa irra ga'eef deebii kennuuf holqoota gara gaazaa geessan irratti haleellaa ni bana.",
+    "sample_reference": "የእስራኤል አየር ሃይል የተቃጣበትን የሚሳኤል እና የሞርታር ጥቃት ማላሽ ነው ሲል በጋዛ ሰርጥ ላይ ጥቃት መፈፀም ጀመረ።",
+    "sample_hypothesis": "የእስራኤል አየር ኃይል በጋዛ በሚገኙ ቀዳዳዎች ላይ ጥቃቶችን በመክፈት ሚሳይሎች እና ከፍተኛ ፍንዳታዎችን ለመከላከል እርምጃ ይወስዳል ።"
+  },
+  {
+    "src": "tir",
+    "tgt": "amh",
+    "samples_evaluated": 5,
+    "bleu": 7.34,
+    "chrf_plus_plus": 24.12,
+    "avg_latency_ms": 7142.6,
+    "sample_source": "ሓይሊ ኣየር እስራኤል ንዝተተኮሱ ሚሳይላትን ሞርታርን ግብረ መልሲ ኣብ ልዕሊ ካብ ጋዛ ናብ እስራኤል ዝወስዱ ናይ ውሽጣ ውሽጢ መተሓላለፍታት መጥቃዕቲ ፈንዩ።",
+    "sample_reference": "የእስራኤል አየር ሃይል የተቃጣበትን የሚሳኤል እና የሞርታር ጥቃት ማላሽ ነው ሲል በጋዛ ሰርጥ ላይ ጥቃት መፈፀም ጀመረ።",
+    "sample_hypothesis": "የእስራኤል አየር ኃይል ከጋዛ ወደ እስራኤል በሚወስዱት የውስጥ መተላለፊያዎች ላይ ሚሳይሎች እና ሞርተር ግብረመልስ አድርጓል ።"
+  },
+  {
+    "src": "som",
+    "tgt": "amh",
+    "samples_evaluated": 5,
+    "bleu": 6.47,
+    "chrf_plus_plus": 24.72,
+    "avg_latency_ms": 6980.2,
+    "sample_source": "Ciidamada Cirka ee Israa’iil ayaa weerar ku qaaday marinnada dhulka hoostiisa ee Gaza, iyadoo ka jawaabaysa weerarrada gantaalaha iyo hoobiyayaasha lala beegsaday Israel.",
+    "sample_reference": "የእስራኤል አየር ሃይል የተቃጣበትን የሚሳኤል እና የሞርታር ጥቃት ማላሽ ነው ሲል በጋዛ ሰርጥ ላይ ጥቃት መፈፀም ጀመረ።",
+    "sample_hypothesis": "የእስራኤል አየር ኃይሎች በእስራኤል ላይ የተፈጸሙትን የሮኬት እና የመከላከያ ጥቃቶች ምላሽ በመስጠት በጋዛ ውስጥ በሚገኙት የባህር ወለል መተላለፊያዎች ላይ ጥቃት ፈፀሙ።"
+  },
+  {
+    "src": "amh",
+    "tgt": "eng",
+    "samples_evaluated": 5,
+    "bleu": 10.54,
+    "chrf_plus_plus": 41.16,
+    "avg_latency_ms": 2432.0,
+    "sample_source": "የእስራኤል አየር ሃይል የተቃጣበትን የሚሳኤል እና የሞርታር ጥቃት ማላሽ ነው ሲል በጋዛ ሰርጥ ላይ ጥቃት መፈፀም ጀመረ።",
+    "sample_reference": "The Israeli Air Force launches an attack against tunnels leading from Gaza into Israel in response to missile attacks and mortar fire.",
+    "sample_hypothesis": "Israel's air force launched an attack on the Gaza Strip as part of a missile and mortar attack."
+  }
+]

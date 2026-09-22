@@ -1,0 +1,38 @@
+# ===========================
+# Ethiopian Language Translator
+# AI Pipeline Dependencies
+# ===========================
+
+# Core ML
+torch>=2.1.0
+torchaudio>=2.1.0
+transformers>=4.40.0
+sentencepiece>=0.2.0
+sacremoses>=0.1.1
+
+# Whisper STT
+openai-whisper>=20231117
+
+# ONNX Runtime (for quantized inference)
+onnxruntime>=1.18.0
+optimum>=1.20.0
+
+# TTS - Piper
+piper-tts>=1.2.0
+
+# Audio processing
+sounddevice>=0.4.6
+soundfile>=0.12.1
+numpy>=1.24.0
+scipy>=1.11.0
+pyctcdecode>=0.5.0
+
+# Utilities
+tqdm>=4.66.0
+requests>=2.31.0
+rich>=13.7.0
+
+# Local HTTP bridge
+fastapi>=0.115.0
+python-multipart>=0.0.9
+uvicorn[standard]>=0.30.0
