@@ -186,11 +186,35 @@ class EthioMultilingualSTT:
                 torch_dtype=torch.float32,
             )
             self.model.eval()
+            self._build_lexicon_decoder()
             console.print("[green]✓ Ethiopian Multilingual ASR loaded (Amharic · Afaan Oromo · Tigrinya)[/green]")
             return True
         except Exception as error:
             console.print(f"[yellow]EthioMultilingualSTT load failed: {error}[/yellow]")
             return False
+
+    def _build_lexicon_decoder(self):
+        try:
+            from pyctcdecode import build_ctcdecoder
+            from pathlib import Path
+            lexicon_dir = Path(__file__).resolve().parent.parent / "data" / "lexicon"
+            unigrams_set = set()
+            for l_file in ["orm_unigrams.txt", "amh_unigrams.txt", "tir_unigrams.txt"]:
+                p = lexicon_dir / l_file
+                if p.exists():
+                    unigrams_set.update([w.strip().lower() for w in p.read_text(encoding="utf-8").splitlines() if w.strip()])
+            
+            if unigrams_set:
+                vocab = self.processor.tokenizer.get_vocab()
+                inv = {idx: tok for tok, idx in vocab.items()}
+                labels = [inv[i] for i in range(len(vocab))]
+                self.decoder = build_ctcdecoder(labels, unigrams=list(unigrams_set))
+                console.print(f"[green]✓ EthioMultilingualSTT lexicon-guided beam search enabled ({len(unigrams_set):,} unigrams)[/green]")
+            else:
+                self.decoder = None
+        except Exception as e:
+            console.print(f"[yellow]Lexicon decoder note: {e}[/yellow]")
+            self.decoder = None
 
     def load(self):
         self.try_load()
@@ -223,8 +247,17 @@ class EthioMultilingualSTT:
 
         with torch.no_grad():
             logits = self.model(**inputs).logits
-        predicted_ids = torch.argmax(logits, dim=-1)
-        raw_text = self.processor.batch_decode(predicted_ids)[0].strip()
+
+        if getattr(self, "decoder", None) is not None:
+            try:
+                raw_text = self.decoder.decode(logits[0].float().cpu().numpy()).strip()
+            except Exception:
+                predicted_ids = torch.argmax(logits, dim=-1)
+                raw_text = self.processor.batch_decode(predicted_ids)[0].strip()
+        else:
+            predicted_ids = torch.argmax(logits, dim=-1)
+            raw_text = self.processor.batch_decode(predicted_ids)[0].strip()
+
         # Strip language token prefixes like [AMH], [ORM], [TIR], [SID], [WAL]
         return re.sub(r"^\[[A-Za-z]+\]\s*", "", raw_text).strip()
 
@@ -651,20 +684,46 @@ class NLLB200Translator:
                 toks = self.tokenizer.convert_ids_to_tokens(self.tokenizer.encode(sent))
                 batch_tokens.append(toks)
                 target_prefixes.append([tgt_lang])
-
+            import math
             results = self.ct2_translator.translate_batch(
                 batch_tokens,
                 target_prefix=target_prefixes,
                 beam_size=4,
-                repetition_penalty=1.2,
+                repetition_penalty=1.25,
                 no_repeat_ngram_size=3,
                 max_decoding_length=512,
+                return_scores=True,
             )
             translated_sentences = []
-            for res in results:
-                target = res.hypotheses[0][1:]
-                sent_text = self.tokenizer.decode(self.tokenizer.convert_tokens_to_ids(target), skip_special_tokens=True).strip()
-                translated_sentences.append(sent_text)
+            for sent, res in zip(raw_sentences, results):
+                hyp_tokens = res.hypotheses[0][1:]
+                score = res.scores[0]
+                sent_text = self.tokenizer.decode(self.tokenizer.convert_tokens_to_ids(hyp_tokens), skip_special_tokens=True).strip()
+
+                # In CTranslate2 (length_penalty=1.0), score is ALREADY length-normalized log-probability:
+                norm_logprob = score
+                norm_prob = math.exp(norm_logprob)
+
+                # Statistical Noise / Attractor Chaff Suppression:
+                # If normalized log-prob < -1.15 (token prob < 31.6%) and clause is short (<= 4 words),
+                # the hypothesis is mathematically detached from the source (acoustic chaff/hallucination).
+                if norm_logprob < -1.15 and len(sent.split()) <= 4:
+                    console.print(f"[yellow]⚠ Suppressed ungrounded noise (prob={norm_prob:.2f}, score={score:.2f}): '{sent}' -> '{sent_text}'[/yellow]")
+                    continue
+
+                if sent_text:
+                    translated_sentences.append(sent_text)
+
+            if not translated_sentences:
+                fallback_msg = {
+                    "eng_Latn": "[Audio unclear]",
+                    "amh_Ethi": "[ድምፁ ግልጽ አይደለም]",
+                    "gaz_Latn": "[Sagaleen hin dhagahamne]",
+                    "tir_Ethi": "[ድምጺ ንጹር ኣይኮነን]",
+                    "som_Latn": "[Codku ma cadda]",
+                }.get(tgt_lang, "[Audio unclear]")
+                return fallback_msg
+
             return " ".join(translated_sentences)
 
         # PyTorch fallback path
@@ -839,6 +898,37 @@ class TranslatorPipeline:
                     else:
                         return "Adigana magacaa?"
 
+            # 3. Conversational time-of-day greetings
+            if re.search(r"^እንደምን\s+(?:አደሩ|አደርክ|አደርሽ|አደራችሁ)$", t_clean):
+                if tgt_lang in ("eng", "eng_Latn"):
+                    return "Good morning."
+                elif tgt_lang in ("orm", "gaz_Latn"):
+                    return "Akkam bultan."
+                elif tgt_lang in ("tir", "tir_Ethi"):
+                    return "ከመይ ሓዲርኩም ።"
+                elif tgt_lang in ("som", "som_Latn"):
+                    return "Subax wanaagsan."
+
+            if re.search(r"^እንደምን\s+(?:ዋሉ|ዋልክ|ዋልሽ|ዋላችሁ)$", t_clean):
+                if tgt_lang in ("eng", "eng_Latn"):
+                    return "Good afternoon."
+                elif tgt_lang in ("orm", "gaz_Latn"):
+                    return "Akkam ooltan."
+                elif tgt_lang in ("tir", "tir_Ethi"):
+                    return "ከመይ ውዒልኩም ።"
+                elif tgt_lang in ("som", "som_Latn"):
+                    return "Galab wanaagsan."
+
+            if re.search(r"^እንደምን\s+(?:አመሹ|አመሸህ|አመሸሽ|አመሻችሁ)$", t_clean):
+                if tgt_lang in ("eng", "eng_Latn"):
+                    return "Good evening."
+                elif tgt_lang in ("orm", "gaz_Latn"):
+                    return "Akkam dhiitan."
+                elif tgt_lang in ("tir", "tir_Ethi"):
+                    return "ከመይ ኣምሲኹም ።"
+                elif tgt_lang in ("som", "som_Latn"):
+                    return "Fiid wanaagsan."
+
         # Afaan Oromo Source Patterns
         elif src_lang in ("orm", "gaz_Latn"):
             m_intro = re.match(r"^(?:ani\s+)?([A-Za-z]+)(?:n)?\s+jedhama$", t_clean, re.IGNORECASE) or re.match(r"^maqaan\s+koo\s+([A-Za-z]+)(?:\s+dha)?$", t_clean, re.IGNORECASE)
@@ -992,6 +1082,10 @@ class TranslatorPipeline:
             except Exception:
                 pass
 
+            UNCLEAR_FALLBACKS = {
+                "[Audio unclear]", "[ድምፁ ግልጽ አይደለም]", "[Sagaleen hin dhagahamne]",
+                "[ድምጺ ንጹር ኣይኮነን]", "[Codku ma cadda]"
+            }
             translated_clauses = []
             for clause in clauses:
                 trans = self._translate_clause(clause, src_lang_key, tgt_lang_key)
@@ -1003,11 +1097,17 @@ class TranslatorPipeline:
                     # Preserve question mark if source clause had one
                     if clause.endswith("?") and not trans_str.endswith("?"):
                         trans_str = re.sub(r"[.።]+$", "", trans_str) + "?"
-                    elif (clause.endswith("።") or clause.endswith(".")) and not trans_str.endswith((".", "።", "?", "!")):
+                    elif (clause.endswith("።") or clause.endswith(".")) and not (
+                        trans_str.endswith((".", "።", "?", "!")) or trans_str in UNCLEAR_FALLBACKS
+                    ):
                         trans_str += "።" if tgt_lang_key in ("amh", "tir") else "."
                     translated_clauses.append(trans_str)
+
+            valid_clauses = [c for c in translated_clauses if c not in UNCLEAR_FALLBACKS]
+            if valid_clauses:
+                return " ".join(valid_clauses)
             if translated_clauses:
-                return " ".join(translated_clauses)
+                return translated_clauses[0]
 
         # Single clause path: Check TM first
         try:

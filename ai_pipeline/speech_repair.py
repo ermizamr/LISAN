@@ -168,27 +168,8 @@ OROMO_SPOKEN_CONTRACTIONS = [
     (r"\bakkambultan\b", "akkam bultan"),
     (r"\bakkambultee\b", "akkam bulte"),
     (r"\bakkamoolta\b", "akkam oolta"),
-    (r"\bodu\b", "oduu"),
-
-    # Spoken news, political analysis, and public affairs phonetic repairs
-    (r"\bgar\s+fageenya\b", "gadi fageenya"),
-    (r"\bqatiilee\b", "qabxiilee"),
-    (r"\btaassifamu\b", "taasifamu"),
-    (r"\bins\s+baii\s+ala\s+ba'uudhaaf\b", "biyya alaa ba'uudhaaf"),
-    (r"\bins\s+baii\s+ala\b", "biyya alaa"),
-    (r"\bins\s+baii\b", "biyya"),
-    (r"\bmugaasnesaa\b", "moggaasni isaa"),
-    (r"\bmogaasnesaa\b", "moggaasni isaa"),
-    (r"\bwan\s+baayyee\b", "waan baay'ee"),
-    (r"\bobbo\s+j['’`]?a(?:a)?\s+mohammad\b", "Obbo Jawar Mohammed"),
-    (r"\bobbo\s+j['’`]?a(?:a)?\b", "Obbo Jawaar"),
-    (r"\bj['’`]?a(?:a)?\s+mohammad\b", "Jawar Mohammed"),
-
-    # Trailing ungrounded acoustic noise/chaff to inaudible marker
-    (r"\s+insootay\s+saakkea[.]?", ""),
-    (r"\binsootay\b", ""),
-    (r"\bsaakkea\b", ""),
 ]
+
 
 # Tigrinya spoken contractions & phonetic variations
 TIGRINYA_SPOKEN_CONTRACTIONS = [
