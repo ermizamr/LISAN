@@ -374,6 +374,33 @@ ORM_TO_ENG_EXACT = {
 
 # Tigrinya common conversational exact mappings
 TIR_TO_ENG_EXACT = {
+    # Universal Greetings & Broadcast Anchor Formulas
+    "ጥዕና ይሃበለይ": "Hello",
+    "ጥዕና ይሃበለይ!": "Hello!",
+    "ጥዕና ይሃበለይ ከመይ ዲኹም": "Hello, how are you?",
+    "ጥዕና ይሃበለይ ከመይ ዲኹም?": "Hello, how are you?",
+    "ጥዕና ይሃበለይ ከመይ ኣለኹም": "Hello, how are you?",
+    "ጥዕና ይሃበለይ ከመይ ኣለኹም?": "Hello, how are you?",
+    "ጥዕና ይሃበለይ ከመይ ዲኻ": "Hello, how are you?",
+    "ጥዕና ይሃበለይ ከመይ ዲኻ?": "Hello, how are you?",
+    "ጥዕና ይሃበለይ ከመይ ዲኺ": "Hello, how are you?",
+    "ጥዕና ይሃበለይ ከመይ ዲኺ?": "Hello, how are you?",
+    "ጥዕና ይሃበለይ ከመይ ዲኹም ዝኸበርኩም ተመልከትትና": "Hello, how are you honored viewers.",
+    "ጥዕና ይሃበለይ ከመይ ዲኹም ዝኸበርኩም ተዓዘብትና": "Hello, how are you honored viewers.",
+    "ጥዕና ይሃበለይ ከመይ ኣለኹም ዝኸበርኩም ተመልከትትና": "Hello, how are you honored viewers.",
+    "ጥዕና ይሃበለይ ከመይ ኣለኹም ዝኸበርኩም ተዓዘብትና": "Hello, how are you honored viewers.",
+    "ጥዕና ይሃበለይ ከመይ ዲኹም ክቡራት ተመልከትትና": "Hello, how are you dear viewers.",
+    "ጥዕና ይሃበለይ ከመይ ዲኹም ክቡራት ተዓዘብትና": "Hello, how are you dear viewers.",
+    "ጥዕና ይሃበለይ ከመይ ኣለኹም ክቡራት ተመልከትትና": "Hello, how are you dear viewers.",
+    "ጥዕና ይሃበለይ ከመይ ኣለኹም ክቡራት ተዓዘብትና": "Hello, how are you dear viewers.",
+    "ጥዕና ይሃበለይ ከመይ ዲኹም ዝኸበርኩም ሰማዕትና": "Hello, how are you honored listeners.",
+    "ዝኸበርኩም ተመልከትትና": "Honored viewers",
+    "ዝኸበርኩም ተዓዘብትና": "Honored viewers",
+    "ክቡራት ተመልከትትና": "Dear viewers",
+    "ክቡራት ተዓዘብትና": "Dear viewers",
+    "ዝኸበርኩም ሰማዕትና": "Honored listeners",
+    "ክቡራት ሰማዕትና": "Dear listeners",
+    "ክቡራትን ክቡራንን": "Ladies and gentlemen",
     # Greetings & Courtesies
     "ሰላም": "Hello",
     "ሰላም!": "Hello!",
@@ -679,6 +706,33 @@ ORM_TO_ENG_POSTPROCESS = [
 
 # Tigrinya -> English post-processing fixes
 TIR_TO_ENG_POSTPROCESS = [
+    # Literal health translations for universal greeting (ጥዕና ይሃበለይ)
+    (r"(?i)\b(?:in|with)\s+my\s+health\b", "Hello"),
+    (r"(?i)\bwhere\s+(?:is\s+)?(?:your\s+)?health\b", "Hello"),
+    (r"(?i)\bwhere\s+health\s+is\b", "Hello"),
+    (r"(?i)\bgood\s+health,?\s+(?:see|watch|how)\s+(?:you\s+are\s+doing|how\s+you\s+are)\b", "Hello, how are you"),
+    (r"(?i)^good\s+health,?\s*", "Hello, "),
+    (r"(?i)^good\s+health\b", "Hello"),
+
+    # Literal misinterpretation of ተመልከትትና / ተዓዘብትና ('our viewers') as 1st person verb
+    (r"(?i)\bI'll\s+take\s+a\s+look(?:\s+at)?\b", "our viewers"),
+    (r"(?i)\bwe'll\s+take\s+a\s+look(?:\s+at)?\b", "our viewers"),
+    (r"(?i)\bwe\s+are\s+looking\s+at\b", "honored viewers"),
+    (r"(?i)\bsee\s+how\s+you\s+are\s+doing\b", "how are you doing"),
+    (r"(?i)\bwatch\s+how\s+you\s+are\s+doing\b", "how are you doing"),
+
+    # Periphrastic broadcast verb formulas (ሒዝና ቀሪብና ኣለና)
+    (r"(?i)\bwe\s+are\s+approaching\s+at\s+([0-9:]+\s*(?:a\.?m\.?|p\.?m\.?)?|\w+)\b", r"At \1, we present"),
+    (r"(?i)\bwe\s+are\s+approaching\b", "we present"),
+    (r"(?i)\bapproaching\s+at\b", "at"),
+    (r"(?i)\bwe\s+have\s+held\s+and\s+presented\b", "we have brought to you"),
+    (r"(?i)\bheld\s+and\s+presented\b", "presented"),
+
+    # Time mistranslations (ፈረቓ = half past / 30 minutes)
+    (r"(?i)\bjust\s+after\s+(\w+)\s+o'clock\b", r"at half past \1"),
+    (r"(?i)\bjust\s+after\s+(\d+)\b", r"at \1:30"),
+
+    # Standard greetings & courtesies
     (r"(?i)^(is it peace|is peace)\??$", "Is everything good?"),
     (r"(?i)^(are you peace|are you peaceful)\??$", "Are you doing well?"),
     (r"(?i)^be peaceful\??$", "Goodbye."),
@@ -827,6 +881,20 @@ AMH_TO_ORM_EXACT = {
 
 # Tigrinya -> Amharic exact colloquial mappings
 TIR_TO_AMH_EXACT = {
+    # Universal Greetings & Broadcast Anchor Formulas
+    "ጥዕና ይሃበለይ": "ጤና ይስጥልኝ።",
+    "ጥዕና ይሃበለይ!": "ጤና ይስጥልኝ!",
+    "ጥዕና ይሃበለይ ከመይ ዲኹም": "ጤና ይስጥልኝ እንደምን ናችሁ?",
+    "ጥዕና ይሃበለይ ከመይ ዲኹም?": "ጤና ይስጥልኝ እንደምን ናችሁ?",
+    "ጥዕና ይሃበለይ ከመይ ኣለኹም": "ጤና ይስጥልኝ እንደምን ናችሁ?",
+    "ጥዕና ይሃበለይ ከመይ ኣለኹም?": "ጤና ይስጥልኝ እንደምን ናችሁ?",
+    "ጥዕና ይሃበለይ ከመይ ዲኹም ዝኸበርኩም ተመልከትትና": "ጤና ይስጥልኝ፣ ክቡራት ተመልካቾቻችን እንደምን ናችሁ።",
+    "ጥዕና ይሃበለይ ከመይ ዲኹም ዝኸበርኩም ተዓዘብትና": "ጤና ይስጥልኝ፣ ክቡራት ተመልካቾቻችን እንደምን ናችሁ።",
+    "ጥዕና ይሃበለይ ከመይ ኣለኹም ዝኸበርኩም ተመልከትትና": "ጤና ይስጥልኝ፣ ክቡራት ተመልካቾቻችን እንደምን ናችሁ።",
+    "ጥዕና ይሃበለይ ከመይ ኣለኹም ዝኸበርኩም ተዓዘብትና": "ጤና ይስጥልኝ፣ ክቡራት ተመልካቾቻችን እንደምን ናችሁ።",
+    "ዝኸበርኩም ተመልከትትና": "ክቡራት ተመልካቾቻችን",
+    "ዝኸበርኩም ተዓዘብትና": "ክቡራት ተመልካቾቻችን",
+    "ዝኸበርኩም ሰማዕትና": "ክቡራት አድማጮቻችን",
     "ከመይ ኣለኻ": "እንዴት ነህ?",
     "ከመይ ኣለኻ?": "እንዴት ነህ?",
     "ከመይ ኣለኺ": "እንዴት ነሽ?",

@@ -70,6 +70,26 @@ OROMO_IDIOMS: list[tuple[str, str, str]] = [
 ]
 
 TIGRINYA_IDIOMS: list[tuple[str, str, str]] = [
+    # Broadcast & Media Introductions
+    (r"\bጥዕና\s+ይሃበለይ\s+ከመይ\s+(?:ዲኹም|ኣለኹም)\s+(?:ዝኸበርኩም|ክቡራት)\s+(?:ተመልከትትና|ተዓዘብትና)\b",
+     "Hello, how are you honored viewers.",
+     "ጤና ይስጥልኝ፣ ክቡራት ተመልካቾቻችን እንደምን ናችሁ።"),
+    (r"\bጥዕና\s+ይሃበለይ\s+ከመይ\s+(?:ዲኹም|ኣለኹም)\s+(?:ዝኸበርኩም|ክቡራት)\s+ሰማዕትና\b",
+     "Hello, how are you honored listeners.",
+     "ጤና ይስጥልኝ፣ ክቡራት አድማጮቻችን እንደምን ናችሁ።"),
+    (r"\bጥዕና\s+ይሃበለይ\s+ከመይ\s+(?:ዲኹም|ኣለኹም)\b",
+     "Hello, how are you all?",
+     "ጤና ይስጥልኝ፣ እንደምን ናችሁ?"),
+    (r"\bጥዕና\s+ይሃበለይ\b",
+     "Hello / Greetings",
+     "ጤና ይስጥልኝ።"),
+    (r"\b(?:ዝኸበርኩም|ክቡራት)\s+(?:ተመልከትትና|ተዓዘብትና)\b",
+     "Honored viewers",
+     "ክቡራት ተመልካቾቻችን"),
+    (r"\b(?:ዝኸበርኩም|ክቡራት)\s+ሰማዕትና\b",
+     "Honored listeners",
+     "ክቡራት አድማጮቻችን"),
+    # Courtesies & Comfort
     (r"\bእንቋዕ ብደሓን መጻእካ\b", "Welcome! Glad you arrived safely", "እንኳን ደህና መጣህ።"),
     (r"\bእንቋዕ ብደሓን መጻእኪ\b", "Welcome! Glad you arrived safely", "እንኳን ደህና መጣሽ።"),
     (r"\bእንቋዕ ብደሓን መጻእኩም\b", "Welcome everyone! Glad you arrived safely", "እንኳን ደህና መጣችሁ።"),
@@ -110,16 +130,25 @@ class CulturalIdiomEngine:
             ("som", "som_Latn"): SOMALI_IDIOMS,
         }
 
+        # Defer compound multi-clause sentences to the pipeline's clause-level translator
+        multi_clauses = [c.strip() for c in re.split(r'(?<=[.?!።፧!])\s+', cleaned) if c.strip()]
+        if len(multi_clauses) > 1:
+            return None
+
+        text_words = len(stripped.split())
         for keys, table in idiom_tables.items():
             if src_lang in keys:
                 for entry in table:
                     pattern = entry[0]
                     clean_pat = pattern.removeprefix("(?i)")
-                    if (re.search(clean_pat, cleaned, flags=re.IGNORECASE) or
-                            re.search(clean_pat, stripped, flags=re.IGNORECASE)):
-                        if is_target_amh and len(entry) >= 3:
-                            return entry[2]
-                        return entry[1]
+                    pat_words = len(re.sub(r"[^\w\s]", "", clean_pat).split())
+                    # Only match if the utterance is primarily the idiom
+                    if text_words <= max(pat_words + 3, 5):
+                        if (re.search(clean_pat, cleaned, flags=re.IGNORECASE) or
+                                re.search(clean_pat, stripped, flags=re.IGNORECASE)):
+                            if is_target_amh and len(entry) >= 3:
+                                return entry[2]
+                            return entry[1]
                 break
 
         return None
@@ -136,7 +165,7 @@ class IntentClassifier:
             "hello", "hi", "how are you", "good morning", "good evening", "goodbye", "bye", "thanks", "thank you",
             "ሰላም", "እንዴት", "እንደምን", "ደህና", "ቻው", "አመሰግናለሁ", "አመሰግናለው",
             "akkam", "nagaa", "fayyaa", "fayyumaa", "fayyummaa", "jirta", "jirtu", "bulte", "oolte", "galatoomi", "galatoomaa",
-            "ከመይ", "ደሓን", "የቐንየለይ", "ብሩህ",
+            "ከመይ", "ደሓን", "የቐንየለይ", "ብሩህ", "ጥዕና", "ጥዕና ይሃበለይ",
             "iska warran", "sidee", "subax", "nabad", "mahadsanid",
         ],
         IntentType.BARGAINING: [
@@ -547,6 +576,11 @@ class SmartEngine:
             )
 
         raw_input = text.strip()
+        try:
+            from ai_pipeline.speech_repair import repair_stt_transcription
+            raw_input = repair_stt_transcription(raw_input, src_lang)
+        except Exception:
+            pass
 
         # Step 1: Contextual Ellipsis Resolution
         context_resolved_text = SmartContextManager.resolve_contextual_ellipsis(

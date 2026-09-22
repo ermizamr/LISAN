@@ -697,10 +697,15 @@ class TranslatorPipeline:
 
     def load_all(self):
         """Load all models. Call once at startup (e.g. app launch)."""
-        console.print(Panel("[bold cyan]Loading Ethiopian Translator (Dataset.ET)[/bold cyan]"))
         t0 = time.time()
+        console.print(Panel("[bold cyan]Loading Ethiopian Translator (Dataset.ET)[/bold cyan]"))
         try:
-            self.hohe_stt.load()     # Dataset.ET Hohe Amharic STT
+            import psutil
+            mem = psutil.virtual_memory()
+            if mem.available > 3_000_000_000:
+                self.hohe_stt.load()
+            else:
+                console.print(f"[yellow]Available RAM ({mem.available/1e9:.1f}GB) low. Deferring Dataset.ET Hohe ASR load to on-demand.[/yellow]")
         except Exception as e:
             console.print(f"[yellow]Dataset.ET Hohe ASR load deferred ({e})[/yellow]")
 
@@ -827,6 +832,82 @@ class TranslatorPipeline:
                     else:
                         return "And what is your name?"
 
+        # Tigrinya Source Patterns
+        elif src_lang in ("tir", "tir_Ethi"):
+            # 1. Self-introduction: "ኣነ [ስም] እበሃል" or "ስመይ [ስም] ይበሃል"
+            m_intro = re.match(r"^(?:ኣነ\s+)?([^\s]+)\s+እበሃል$", t_clean) or re.match(r"^(?:ስመይ\s+)?([^\s]+)\s+ይበሃል$", t_clean)
+            if m_intro:
+                name = m_intro.group(1).strip()
+                if tgt_lang in ("amh", "amh_Ethi"):
+                    return f"እኔ {name} እባላለሁ።"
+                elif tgt_lang in ("eng", "eng_Latn"):
+                    return f"My name is {name}."
+                elif tgt_lang in ("orm", "gaz_Latn"):
+                    return f"Ani {name} jedhama."
+                elif tgt_lang in ("som", "som_Latn"):
+                    return f"Waxaa la i yiraahdaa {name}."
+
+            # 2. Reciprocal inquiry: "ንስኻኸ/ንስኺኸ መን ትበሃል?"
+            if re.search(r"^(?:ንስኻኸ|ንስኺኸ)\s+መን\s+(?:ትበሃል|ትበሃሊ)", t_clean):
+                has_brother = bool(re.search(r"(?:ሓወይ|ሓው)$", t_clean))
+                has_sister = bool(re.search(r"(?:ሓፍተይ|ሓብተይ)$", t_clean))
+                if tgt_lang in ("amh", "amh_Ethi"):
+                    if has_brother:
+                        return "አንተስ ማን ትባላለህ ወንድሜ?"
+                    elif has_sister:
+                        return "አንቺስ ማን ትባያለሽ እህቴ?"
+                    else:
+                        return "አንተስ ማን ትባላለህ?"
+                elif tgt_lang in ("eng", "eng_Latn"):
+                    if has_brother:
+                        return "And what is your name, my brother?"
+                    elif has_sister:
+                        return "And what is your name, my sister?"
+                    else:
+                        return "And what is your name?"
+                elif tgt_lang in ("orm", "gaz_Latn"):
+                    return "Ati hoo maqaan kee eenyu?"
+
+            # 3. Broadcast anchor introductions:
+            # "ጥዕና ይሃበለይ ከመይ ዲኹም ዝኸበርኩም ተመልከትትና/ተዓዘብትና"
+            if re.search(r"^(?:ጥዕና\s+ይሃበለይ|ሰላም)\s*(?:፣|,)?\s*(?:ከመይ\s+(?:ዲኹም|ኣለኹም))\s*(?:ዝኸበርኩም|ክቡራት)\s+(?:ተመልከትትና|ተዓዘብትና)", t_clean):
+                if tgt_lang in ("eng", "eng_Latn"):
+                    return "Hello, how are you honored viewers."
+                elif tgt_lang in ("amh", "amh_Ethi"):
+                    return "ጤና ይስጥልኝ፣ ክቡራት ተመልካቾቻችን እንደምን ናችሁ።"
+                elif tgt_lang in ("orm", "gaz_Latn"):
+                    return "Akkam jirtu kabajamoo daawwattoota keenya."
+                elif tgt_lang in ("som", "som_Latn"):
+                    return "Waxaan idin leenahay caafimaad, sidee tihiin daawadayaasheenna sharafta leh."
+
+            if re.search(r"^(?:ጥዕና\s+ይሃበለይ|ሰላም)\s*(?:፣|,)?\s*(?:ከመይ\s+(?:ዲኹም|ኣለኹም))\s*(?:ዝኸበርኩም|ክቡራት)\s+ሰማዕትና", t_clean):
+                if tgt_lang in ("eng", "eng_Latn"):
+                    return "Hello, how are you honored listeners."
+                elif tgt_lang in ("amh", "amh_Ethi"):
+                    return "ጤና ይስጥልኝ፣ ክቡራት አድማጮቻችን እንደምን ናችሁ።"
+                elif tgt_lang in ("orm", "gaz_Latn"):
+                    return "Akkam jirtu kabajamoo dhaggeeffattoota keenya."
+                elif tgt_lang in ("som", "som_Latn"):
+                    return "Waxaan idin leenahay caafimaad, sidee tihiin dhagaystayaasheenna sharafta leh."
+
+            # 4. Broadcast announcement formulas:
+            # e.g. "ልክዕ ሰዓት ሽዱሽተ ፈረቓን ነዚ ሰዓት ዝመረጽናዮ ዜናታት ድማ ሒዝና ቀሪብና ኣለና"
+            m_broadcast_lead = re.match(
+                r"^ልክዕ\s+ሰዓት\s+(ሽዱሽተ|\d+)\s*(?:ን)?ፈረቓን\s*(?:፣|,)?\s*(?:ነዚ|ናይዚ)\s+ሰዓት\s+ዝመረጽናዮ\s+ዜናታት\s+(?:ድማ\s+)?ሒዝና\s+ቀሪብና\s+ኣለና$",
+                t_clean,
+            )
+            if m_broadcast_lead:
+                hour = m_broadcast_lead.group(1)
+                hour_str = "6:30" if hour in ("ሽዱሽተ", "6") else f"{hour}:30"
+                if tgt_lang in ("eng", "eng_Latn"):
+                    return f"At exactly {hour_str}, we have brought to you the news we selected for this hour."
+                elif tgt_lang in ("amh", "amh_Ethi"):
+                    return "ልክ በስድስት ሰዓት ተኩል ለዚህ ሰዓት የመረጥናቸውን ዜናዎች ይዘን ቀርበናል።"
+                elif tgt_lang in ("orm", "gaz_Latn"):
+                    return "Sa'aatii jaha fi walakkaa irratti oduu sa'aatii kanaaf filanne qabannee dhihaanneerra."
+                elif tgt_lang in ("som", "som_Latn"):
+                    return "Saacadda lixaad iyo badhka waxaan idiin soo gudbinaynaa wararkii aan saacaddan u dooranay."
+
         return None
 
     def _translate_clause(self, clause: str, src_lang_key: str, tgt_lang_key: str) -> str:
@@ -877,21 +958,21 @@ class TranslatorPipeline:
         if not clean_text:
             return ""
 
-        # 2. First check if the entire multi-word utterance has an exact or fuzzy TM hit
-        try:
-            from ai_pipeline.translation_memory import TranslationMemory
-            tm_match = TranslationMemory.get_instance().lookup(clean_text, src_lang_key, tgt_lang_key)
-            if tm_match:
-                console.print(f"[cyan]🎯 Full TM hit ({tm_match.dataset}, score={tm_match.score:.2f}): '{clean_text}' -> '{tm_match.target_text}'[/cyan]")
-                return tm_match.target_text
-        except Exception as tm_err:
-            console.print(f"[yellow]⚠ TM lookup error: {tm_err}[/yellow]")
-
-        # 3. Clause-level decomposition for compound spoken sentences
+        # 2. Clause-level decomposition for compound spoken sentences
         # Split on sentence/clause delimiters: [.?!።፧!]
         clauses = [c.strip() for c in re.split(r'(?<=[.?!።፧!])\s+', clean_text) if c.strip()]
         
         if len(clauses) > 1:
+            # Check if there is an exact (>= 0.98) full match across the entire multi-clause text
+            try:
+                from ai_pipeline.translation_memory import TranslationMemory
+                tm_match = TranslationMemory.get_instance().lookup(clean_text, src_lang_key, tgt_lang_key, min_similarity=0.98)
+                if tm_match and tm_match.score >= 0.98:
+                    console.print(f"[cyan]🎯 Full TM exact hit ({tm_match.dataset}): '{clean_text}' -> '{tm_match.target_text}'[/cyan]")
+                    return tm_match.target_text
+            except Exception:
+                pass
+
             translated_clauses = []
             for clause in clauses:
                 trans = self._translate_clause(clause, src_lang_key, tgt_lang_key)
@@ -908,6 +989,16 @@ class TranslatorPipeline:
                     translated_clauses.append(trans_str)
             if translated_clauses:
                 return " ".join(translated_clauses)
+
+        # Single clause path: Check TM first
+        try:
+            from ai_pipeline.translation_memory import TranslationMemory
+            tm_match = TranslationMemory.get_instance().lookup(clean_text, src_lang_key, tgt_lang_key)
+            if tm_match:
+                console.print(f"[cyan]🎯 Full TM hit ({tm_match.dataset}, score={tm_match.score:.2f}): '{clean_text}' -> '{tm_match.target_text}'[/cyan]")
+                return tm_match.target_text
+        except Exception as tm_err:
+            console.print(f"[yellow]⚠ TM lookup error: {tm_err}[/yellow]")
 
         # Single clause path
         return self._translate_clause(clean_text, src_lang_key, tgt_lang_key)

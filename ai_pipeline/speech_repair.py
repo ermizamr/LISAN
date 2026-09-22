@@ -163,6 +163,39 @@ OROMO_SPOKEN_CONTRACTIONS = [
 
 # Tigrinya spoken contractions & phonetic variations
 TIGRINYA_SPOKEN_CONTRACTIONS = [
+    # Universal greetings & ASR acoustic confusions (e.g. ይሃበለይ heard as ኣበይ)
+    (r"\bጥዕና\s*ኣበይ\b", "ጥዕና ይሃበለይ"),
+    (r"\bጥዕናይሃበለይ\b", "ጥዕና ይሃበለይ"),
+    (r"\bጥዕና\s*ይሃበላይ\b", "ጥዕና ይሃበለይ"),
+    (r"\bጥዕና\s*ይሃበልና\b", "ጥዕና ይሃበለይ"),
+    (r"\bከመይደኹም\b", "ከመይ ዲኹም"),
+    (r"\bከመይዳኹም\b", "ከመይ ዲኹም"),
+    (r"\bከመይድኻ\b", "ከመይ ዲኻ"),
+    (r"\bከመይድኺ\b", "ከመይ ዲኺ"),
+    (r"\bከመይዲኹም\b", "ከመይ ዲኹም"),
+    (r"\bከመይዲኻ\b", "ከመይ ዲኻ"),
+    (r"\bከመይዲኺ\b", "ከመይ ዲኺ"),
+    (r"\bከመይለኹም\b", "ከመይ ኣለኹም"),
+    (r"\bከመይለኻ\b", "ከመይ ኣለኻ"),
+    (r"\bከመይለኺ\b", "ከመይ ኣለኺ"),
+
+    # Broadcast nouns & honorific address normalization
+    (r"(ዝኸበርኩም|ዝኸበርክን|ክቡራት)\s+ተመልከትና\b", r"\1 ተመልከትትና"),
+    (r"\bተመልከትና\b", "ተመልከትትና"),  # Disambiguates noun 'our viewers' from verb 'we looked'
+
+    # Word boundary / CTC fusion repair
+    (r"\bሒዝናቐሪብና\b", "ሒዝና ቀሪብና"),
+    (r"\bሒዝናቀሪብና\b", "ሒዝና ቀሪብና"),
+    (r"\bቀሪብናኣለና\b", "ቀሪብና ኣለና"),
+    (r"\bሒዝናኣለና\b", "ሒዝና ኣለና"),
+    (r"\bተዳልዩኣሎ\b", "ተዳልዩ ኣሎ"),
+    (r"\bተዳልያኣላ\b", "ተዳልያ ኣላ"),
+    (r"\bብምቕራብ\b", "ብምቕራብ"),
+
+    # Redundant repetitive trailing ASR loops
+    (r"(ዜናታት(?:\s+\w+)*\s+ሒዝና\s+ቀሪብና\s+ኣለና)\s+ዜና\s+ብምቕራብ\b", r"\1"),
+
+    # General conversational contractions
     (r"\bከመይኻ\b", "ከመይ ኣለኻ"),
     (r"\bከመይኺ\b", "ከመይ ኣለኺ"),
     (r"\bከመይኹም\b", "ከመይ ኣለኹም"),
@@ -419,12 +452,35 @@ class SpeechRepair:
                     s += "."
 
         elif lang_code in ("tir", "tir_Ethi"):
-            # Tigrinya clause boundaries & punctuation
-            s = re.sub(r"(ከመይ ኣለኻ|ከመይ ኣለኺ|ከመይ ኣለኹም|ኣበይ ኣሎ|ኣበይ ኣላ|ክንዲ ምንታይ|መን እዩ|ስለምንታይ|ደሓንዶ|ደሓን ዲኻ)\s+(እዚ|እቲ|ኣነ|ንስኻ|ግን|ደግሞ)", r"\1? \2", s)
-            s = re.sub(r"(ሰላም|ሰላም እዩ)\s+(ከመይ ኣለኻ|ከመይ ኣለኺ|ደሓንዶ|ደሓን ዲኻ)", r"\1! \2", s)
-            s = re.sub(r"(እደሊ ኣለኹ|የቐንየለይ|ደሓን|እዩ|ኣይኮነን)\s+(ኣነ|ንስኻ|ግን|እዚ|ደግሞ)", r"\1። \2", s)
-            if s and not s[-1] in ".?!:;፣፧፨\n":
-                if re.search(r"(ከመይ ኣለኻ|ከመይ ኣለኺ|ከመይ ኣለኹም|ኣበይ ኣሎ|ክንዲ ምንታይ|መን እዩ|ደሓንዶ|ደሓን ዲኻ|ስለምንታይ)$", s):
+            # Normalize Ethiopic word dividers/colons (:: or ፡) to standard punctuation
+            s = re.sub(r"::\s*", "። ", s)
+            s = re.sub(r"፡+", " ", s)
+
+            # Broadcast intro boundaries: Greeting + Audience address followed by program announcement
+            # e.g. "ጥዕና ይሃበለይ ከመይ ዲኹም ዝኸበርኩም ተመልከትትና ልክዕ ሰዓት..." -> "...ተመልከትትና። ልክዕ ሰዓት..."
+            s = re.sub(
+                r"((?:ጥዕና\s+ይሃበለይ|ሰላም)\s*(?:፣|,)?\s*(?:ከመይ\s+(?:ዲኹም|ኣለኹም|ቀኒኹም|ዲኻ|ዲኺ))\s+(?:ዝኸበርኩም|ክቡራት|ዝኸበርክን)\s+(?:ተመልከትትና|ተዓዘብትና|ሰማዕትና|ህዝብና))\s+(ልክዕ|ሎሚ|ኣብ|ሰዓት|ነዚ|ቀጺልና)",
+                r"\1። \2",
+                s,
+            )
+            # Greeting alone followed by time or program lead
+            s = re.sub(
+                r"((?:ጥዕና\s+ይሃበለይ|ሰላም)\s*(?:፣|,)?\s*(?:ከመይ\s+(?:ዲኹም|ኣለኹም|ቀኒኹም)))\s+(ልክዕ|ሎሚ|ኣብ|ሰዓት|ነዚ)",
+                r"\1። \2",
+                s,
+            )
+            # Broadcast time announcements followed by content description
+            # e.g. "ልክዕ ሰዓት ሽዱሽተ ፈረቓን ነዚ ሰዓት..." -> "ልክዕ ሰዓት ሽዱሽተ ፈረቓን፣ ነዚ ሰዓት..."
+            s = re.sub(r"(ሰዓት\s+(?:[^\s]+)\s+(?:ፈረቓን|ንፈረቓን))\s+(ነዚ|ናይ)", r"\1፣ \2", s)
+
+            # Standard conversational clause boundaries
+            s = re.sub(r"(ከመይ ኣለኻ|ከመይ ኣለኺ|ከመይ ኣለኹም|ከመይ ዲኹም|ከመይ ዲኻ|ከመይ ዲኺ|ኣበይ ኣሎ|ኣበይ ኣላ|ክንዲ ምንታይ|መን እዩ|ስለምንታይ|ደሓንዶ|ደሓን ዲኻ)\s+(እዚ|እቲ|ኣነ|ንስኻ|ንስኺ|ግን|ደግሞ|ሎሚ)", r"\1? \2", s)
+            s = re.sub(r"(ሰላም|ሰላም እዩ)\s+(ከመይ ኣለኻ|ከመይ ኣለኺ|ከመይ ዲኹም|ደሓንዶ|ደሓን ዲኻ)", r"\1! \2", s)
+            s = re.sub(r"(እደሊ ኣለኹ|የቐንየለይ|ደሓን|እዩ|ኣይኮነን|ቀሪብና ኣለና)\s+(ኣነ|ንስኻ|ንስኺ|ግን|እዚ|ደግሞ|ሎሚ)", r"\1። \2", s)
+            # Clean up consecutive punctuation and trailing punctuation
+            s = re.sub(r"[።\.\s]+$", "", s)
+            if s:
+                if re.search(r"(ከመይ ኣለኻ|ከመይ ኣለኺ|ከመይ ኣለኹም|ከመይ ዲኹም|ከመይ ዲኻ|ከመይ ዲኺ|ኣበይ ኣሎ|ክንዲ ምንታይ|መን እዩ|ደሓንዶ|ደሓን ዲኻ|ስለምንታይ)$", s):
                     s += "?"
                 else:
                     s += "።"
