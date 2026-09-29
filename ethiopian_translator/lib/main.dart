@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'recording_service.dart';
 import 'translator_api.dart';
@@ -17,7 +18,7 @@ class TranslatorApp extends StatelessWidget {
   Widget build(BuildContext context) {
     const ink = Color(0xFF18312F);
     return MaterialApp(
-      title: 'Lisan',
+      title: 'Lisan - Horn of Africa Translator',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -29,6 +30,7 @@ class TranslatorApp extends StatelessWidget {
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFFF7F5EF),
           foregroundColor: ink,
+          elevation: 0,
         ),
         fontFamily: 'sans',
         useMaterial3: true,
@@ -50,13 +52,18 @@ class ConversationPage extends StatefulWidget {
   State<ConversationPage> createState() => _ConversationPageState();
 }
 
-class _ConversationPageState extends State<ConversationPage> {
+class _ConversationPageState extends State<ConversationPage> with SingleTickerProviderStateMixin {
   String _source = 'English';
   String _target = 'Amharic';
   bool _recording = false;
-  String _status = 'Ready · fully offline';
+  String _status = 'Ready · 100% Offline AI';
   final String _sessionId = 'session_${DateTime.now().millisecondsSinceEpoch}';
   final String _formality = 'auto';
+  final TextEditingController _textController = TextEditingController();
+  late final AnimationController _pulseController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat(reverse: true);
 
   final List<ConversationTurn> _turns = [
     const ConversationTurn(
@@ -67,7 +74,7 @@ class _ConversationPageState extends State<ConversationPage> {
       intent: 'navigation_directions',
       suggestedReplies: [
         QuickReplyItem(text: 'ቅርብ ነው', translation: 'It is close'),
-        QuickReplyItem(text: 'በእግር 10 ደቂቃ ይወስዳል', translation: 'It takes 10 minutes walking'),
+        QuickReplyItem(text: 'በእግር 10 ደቂቃ ይወስዳል', translation: 'It takes 10 mins walk'),
         QuickReplyItem(text: 'ታክሲ ያዝ', translation: 'Take a taxi'),
       ],
     ),
@@ -109,13 +116,52 @@ class _ConversationPageState extends State<ConversationPage> {
     }
   }
 
+  Future<void> _submitText() async {
+    final text = _textController.text.trim();
+    if (text.isEmpty) return;
+    _textController.clear();
+    setState(() {
+      _status = 'Translating text...';
+    });
+
+    try {
+      final result = await widget.api.translateText(
+        text: text,
+        source: _languageKey(_source),
+        target: _languageKey(_target),
+        sessionId: _sessionId,
+        formality: _formality,
+      );
+      if (!mounted) return;
+      setState(() {
+        final srcDisplay = _languageNameFromKey(result.sourceLanguage);
+        final tgtDisplay = _languageNameFromKey(result.targetLanguage);
+        _turns.add(
+          ConversationTurn(
+            source: result.sourceText,
+            translation: result.translatedText,
+            language: '$srcDisplay → $tgtDisplay',
+            isSource: true,
+            intent: result.intent,
+            suggestedReplies: result.suggestedReplies,
+          ),
+        );
+        _status = 'Ready · ${result.latencySeconds.toStringAsFixed(1)}s';
+      });
+    } catch (e) {
+      debugPrint('Text translation error: $e');
+      if (mounted) {
+        setState(() => _status = 'Error connecting to AI server');
+      }
+    }
+  }
+
   Future<void> _toggleRecording() async {
     if (_recording) {
       setState(() {
         _recording = false;
-        _status = 'Finishing audio...';
+        _status = 'Processing voice audio...';
       });
-      // Keep a short tail so the final syllables are not cut off by the tap.
       await Future<void>.delayed(const Duration(milliseconds: 300));
       final path = await widget.audioCapture.stop();
       if (!mounted) return;
@@ -154,8 +200,8 @@ class _ConversationPageState extends State<ConversationPage> {
         if (mounted) {
           final errStr = e.toString();
           final shortErr = errStr.contains('SocketException')
-              ? 'Cannot reach ${widget.api.baseUri.host}:${widget.api.baseUri.port} (Tap settings icon ⚙️)'
-              : 'Error: ${errStr.length > 50 ? errStr.substring(0, 50) : errStr}';
+              ? 'Cannot reach AI server (Tap ⚙️ settings)'
+              : 'Error: ${errStr.length > 40 ? errStr.substring(0, 40) : errStr}';
           setState(() => _status = shortErr);
         }
       }
@@ -164,7 +210,7 @@ class _ConversationPageState extends State<ConversationPage> {
 
     setState(() {
       _recording = true;
-      _status = 'Microphone active';
+      _status = 'Listening... Speak clearly';
     });
     try {
       await widget.audioCapture.start();
@@ -187,13 +233,19 @@ class _ConversationPageState extends State<ConversationPage> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('AI Server Settings'),
+          title: const Row(
+            children: [
+              Icon(Icons.settings_input_antenna_rounded, color: Color(0xFF167D73)),
+              SizedBox(width: 8),
+              Text('AI Server Settings'),
+            ],
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Connect to the local offline translation engine:',
+                'Connect to local offline translation engine:',
                 style: TextStyle(fontSize: 13),
               ),
               const SizedBox(height: 12),
@@ -205,21 +257,17 @@ class _ConversationPageState extends State<ConversationPage> {
                   isDense: true,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Wrap(
                 spacing: 6,
                 children: [
                   ActionChip(
-                    label: const Text('USB (127.0.0.1)'),
+                    label: const Text('Emulator (127.0.0.1)'),
                     onPressed: () => setDialogState(() => controller.text = 'http://127.0.0.1:8000'),
                   ),
                   ActionChip(
-                    label: const Text('Wi-Fi (10.5.200.137)'),
-                    onPressed: () => setDialogState(() => controller.text = 'http://10.5.200.137:8000'),
-                  ),
-                  ActionChip(
-                    label: const Text('Hotspot (192.168.137.1)'),
-                    onPressed: () => setDialogState(() => controller.text = 'http://192.168.137.1:8000'),
+                    label: const Text('Localhost'),
+                    onPressed: () => setDialogState(() => controller.text = 'http://localhost:8000'),
                   ),
                 ],
               ),
@@ -254,6 +302,7 @@ class _ConversationPageState extends State<ConversationPage> {
               child: const Text('Test Connection'),
             ),
             FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF167D73)),
               onPressed: () {
                 final uri = Uri.tryParse(controller.text.trim());
                 if (uri != null) {
@@ -308,6 +357,8 @@ class _ConversationPageState extends State<ConversationPage> {
 
   @override
   void dispose() {
+    _pulseController.dispose();
+    _textController.dispose();
     widget.audioCapture.dispose();
     widget.api.dispose();
     super.dispose();
@@ -318,16 +369,29 @@ class _ConversationPageState extends State<ConversationPage> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 20,
-        title: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        title: Row(
           children: [
-            Text(
-              'Lisan',
-              style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0.2),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF167D73).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.translate_rounded, color: Color(0xFF167D73), size: 22),
             ),
-            Text(
-              'Offline conversation translator',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w400),
+            const SizedBox(width: 12),
+            const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Lisan (ልሳን)',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, letterSpacing: 0.2),
+                ),
+                Text(
+                  'Offline Horn of Africa Translator',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF546E7A)),
+                ),
+              ],
             ),
           ],
         ),
@@ -343,6 +407,7 @@ class _ConversationPageState extends State<ConversationPage> {
       body: SafeArea(
         child: Column(
           children: [
+            const SizedBox(height: 4),
             _LanguageBar(
               source: _source,
               target: _target,
@@ -355,19 +420,23 @@ class _ConversationPageState extends State<ConversationPage> {
             ),
             Expanded(
               child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
                 itemCount: _turns.length,
-                separatorBuilder: (context, index) =>
-                    const SizedBox(height: 14),
+                separatorBuilder: (context, index) => const SizedBox(height: 16),
                 itemBuilder: (context, index) => _TurnCard(
                   turn: _turns[index],
                   onQuickReply: _handleQuickReply,
                 ),
               ),
             ),
+            _TextInputBar(
+              controller: _textController,
+              onSubmitted: _submitText,
+            ),
             _RecordPanel(
               recording: _recording,
               status: _status,
+              pulseAnimation: _pulseController,
               onPressed: _toggleRecording,
             ),
           ],
@@ -417,28 +486,41 @@ class _LanguageBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         children: [
           Expanded(
             child: _LanguageDropdown(
-              label: 'I speak',
+              label: 'From',
               value: source,
               onChanged: (value) => onChanged(value!, target),
             ),
           ),
-          IconButton(
-            onPressed: () => onChanged(target, source),
-            tooltip: 'Swap languages',
-            icon: const Icon(Icons.swap_horiz_rounded),
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF167D73).withValues(alpha: 0.08),
+              shape: BoxShape.circle,
+            ),
+            child: IconButton(
+              onPressed: () => onChanged(target, source),
+              tooltip: 'Swap languages',
+              icon: const Icon(Icons.swap_horiz_rounded, color: Color(0xFF167D73)),
+            ),
           ),
           Expanded(
             child: _LanguageDropdown(
-              label: 'Translate to',
+              label: 'To',
               value: target,
               onChanged: (value) => onChanged(source, value!),
             ),
@@ -468,27 +550,76 @@ class _LanguageDropdown extends StatelessWidget {
         Text(
           label,
           style: TextStyle(
-            color: Colors.grey.shade600,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade500,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.5,
           ),
         ),
         DropdownButton<String>(
           value: value,
           isExpanded: true,
           underline: const SizedBox.shrink(),
-          icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: Color(0xFF167D73)),
           items: _LanguageBar.languages
               .map(
                 (language) => DropdownMenuItem(
                   value: language,
-                  child: Text(language, overflow: TextOverflow.ellipsis),
+                  child: Text(
+                    language,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               )
               .toList(),
           onChanged: onChanged,
         ),
       ],
+    );
+  }
+}
+
+class _TextInputBar extends StatelessWidget {
+  const _TextInputBar({
+    required this.controller,
+    required this.onSubmitted,
+  });
+
+  final TextEditingController controller;
+  final VoidCallback onSubmitted;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFD9E3DF)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                hintText: 'Type text to translate...',
+                border: InputBorder.none,
+                isDense: true,
+                hintStyle: TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              onSubmitted: (_) => onSubmitted(),
+            ),
+          ),
+          IconButton(
+            onPressed: onSubmitted,
+            icon: const Icon(Icons.send_rounded, color: Color(0xFF167D73), size: 20),
+            tooltip: 'Translate text',
+          ),
+        ],
+      ),
     );
   }
 }
@@ -537,16 +668,16 @@ class _TurnCard extends StatelessWidget {
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 11, color: color),
+          Icon(icon, size: 12, color: color),
           const SizedBox(width: 4),
           Text(
             label,
@@ -563,14 +694,23 @@ class _TurnCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    return Container(
       decoration: BoxDecoration(
-        color: turn.isSource ? const Color(0xFFE1F0EC) : Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFD9E3DF)),
+        color: turn.isSource ? const Color(0xFFE8F3F0) : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: turn.isSource ? const Color(0xFFC2DCD6) : const Color(0xFFE0E6E4),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 16, 14, 14),
+        padding: const EdgeInsets.fromLTRB(18, 16, 16, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -579,61 +719,77 @@ class _TurnCard extends StatelessWidget {
                 Text(
                   turn.language,
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 11,
                     fontWeight: FontWeight.w700,
                     color: Color(0xFF167D73),
+                    letterSpacing: 0.3,
                   ),
                 ),
                 const SizedBox(width: 8),
                 _buildIntentBadge(turn.intent),
                 const Spacer(),
                 IconButton(
-                  onPressed: () {},
-                  tooltip: 'Play translation',
-                  icon: const Icon(Icons.volume_up_outlined, size: 20),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: turn.translation));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Copied translation to clipboard'),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  },
+                  tooltip: 'Copy translation',
+                  icon: const Icon(Icons.copy_rounded, size: 18, color: Color(0xFF546E7A)),
+                  constraints: const BoxConstraints(),
+                  padding: EdgeInsets.zero,
                 ),
               ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
             Text(
               turn.source,
-              style: const TextStyle(
-                fontSize: 17,
+              style: TextStyle(
+                fontSize: 15,
                 height: 1.3,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w500,
+                color: Colors.grey.shade700,
               ),
             ),
-            const Divider(height: 22),
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 10),
+              child: Divider(height: 1, color: Color(0xFFE0E6E4)),
+            ),
             Text(
               turn.translation,
               style: const TextStyle(
-                fontSize: 19,
+                fontSize: 18,
                 height: 1.35,
+                fontWeight: FontWeight.w700,
                 color: Color(0xFF18312F),
               ),
             ),
             if (turn.suggestedReplies.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               Row(
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.auto_awesome_rounded,
                     size: 13,
-                    color: Colors.grey.shade600,
+                    color: Color(0xFF167D73),
                   ),
                   const SizedBox(width: 4),
-                  Text(
+                  const Text(
                     'Quick Replies',
                     style: TextStyle(
                       fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF167D73),
                       letterSpacing: 0.2,
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
                 runSpacing: 6,
@@ -642,7 +798,7 @@ class _TurnCard extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                     backgroundColor: Colors.white,
                     side: BorderSide(
-                      color: const Color(0xFF167D73).withValues(alpha: 0.4),
+                      color: const Color(0xFF167D73).withValues(alpha: 0.35),
                     ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
@@ -674,61 +830,71 @@ class _RecordPanel extends StatelessWidget {
   const _RecordPanel({
     required this.recording,
     required this.status,
+    required this.pulseAnimation,
     required this.onPressed,
   });
 
   final bool recording;
   final String status;
+  final Animation<double> pulseAnimation;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
       child: Column(
         children: [
           Text(
-            recording ? 'Listening...' : 'Tap to speak',
-            style: const TextStyle(
+            recording ? 'Listening... Tap to stop' : 'Tap to speak',
+            style: TextStyle(
               fontWeight: FontWeight.w700,
-              color: Color(0xFF18312F),
+              fontSize: 13,
+              color: recording ? const Color(0xFFCF5C45) : const Color(0xFF18312F),
             ),
           ),
           const SizedBox(height: 10),
           GestureDetector(
             onTap: onPressed,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: 76,
-              height: 76,
-              decoration: BoxDecoration(
-                color: recording
-                    ? const Color(0xFFCF5C45)
-                    : const Color(0xFF167D73),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color:
-                        (recording
-                                ? const Color(0xFFCF5C45)
-                                : const Color(0xFF167D73))
-                            .withValues(alpha: 0.25),
-                    blurRadius: 16,
-                    spreadRadius: 3,
+            child: AnimatedBuilder(
+              animation: pulseAnimation,
+              builder: (context, child) {
+                final scale = recording ? 1.0 + (pulseAnimation.value * 0.15) : 1.0;
+                return Transform.scale(
+                  scale: scale,
+                  child: Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: recording
+                          ? const Color(0xFFCF5C45)
+                          : const Color(0xFF167D73),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: (recording
+                                  ? const Color(0xFFCF5C45)
+                                  : const Color(0xFF167D73))
+                              .withValues(alpha: recording ? 0.4 : 0.25),
+                          blurRadius: recording ? 20 : 12,
+                          spreadRadius: recording ? 6 : 2,
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      recording ? Icons.stop_rounded : Icons.mic_rounded,
+                      color: Colors.white,
+                      size: 32,
+                    ),
                   ),
-                ],
-              ),
-              child: Icon(
-                recording ? Icons.stop_rounded : Icons.mic_rounded,
-                color: Colors.white,
-                size: 32,
-              ),
+                );
+              },
             ),
           ),
           const SizedBox(height: 8),
           Text(
             status,
-            style: const TextStyle(fontSize: 12, color: Color(0xFF66736F)),
+            style: const TextStyle(fontSize: 11, color: Color(0xFF66736F), fontWeight: FontWeight.w500),
           ),
         ],
       ),
