@@ -66,6 +66,12 @@ def parse_args():
     parser.add_argument("--eval_benchmarks", action="store_true", default=False, help="Run HornMT evaluation after training")
     parser.add_argument("--merge_only", action="store_true", default=False,
                         help="Skip training and only merge existing LoRA adapter into standalone model and CTranslate2 INT8")
+    parser.add_argument("--max_steps", type=int, default=-1,
+                        help="Maximum training steps (overrides num_epochs if > 0)")
+    parser.add_argument("--max_samples", type=int, default=-1,
+                        help="Cap training samples to fit within fast GPU sessions")
+    parser.add_argument("--save_steps", type=int, default=200,
+                        help="Checkpoint save interval in steps")
     return parser.parse_args()
 
 
@@ -208,6 +214,10 @@ def main():
     print(f"  • Train Samples : {len(dataset['train']):,}")
     print(f"  • Val Samples   : {len(dataset['val']):,}")
 
+    if args.max_samples > 0 and args.max_samples < len(dataset["train"]):
+        dataset["train"] = dataset["train"].shuffle(seed=42).select(range(args.max_samples))
+        print(f"  • Capped to     : {len(dataset['train']):,} balanced training samples")
+
     # 3. Preprocessing
     def preprocess_function(examples):
         inputs = examples["source"]
@@ -304,6 +314,13 @@ def main():
         "warmup_steps": 100,
         "report_to": "none",
     }
+    if args.max_steps > 0:
+        training_args_dict["max_steps"] = args.max_steps
+        training_args_dict["save_strategy"] = "steps"
+        training_args_dict["save_steps"] = args.save_steps
+        training_args_dict["eval_strategy"] = "steps"
+        training_args_dict["eval_steps"] = args.save_steps
+
     arg_params = inspect.signature(Seq2SeqTrainingArguments.__init__).parameters
     if "eval_strategy" not in arg_params and "evaluation_strategy" in arg_params:
         training_args_dict["evaluation_strategy"] = training_args_dict.pop("eval_strategy")
