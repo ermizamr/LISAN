@@ -84,6 +84,18 @@ def merge_whisper(base_model_name: str, adapter_dir: str, merged_dir: str):
         processor = WhisperProcessor.from_pretrained(base_model_name, language="amharic", task="transcribe")
 
     print(f"3. Applying LoRA adapter from {adapter_p}...")
+    try:
+        import peft.import_utils
+        peft.import_utils.is_torchao_available = lambda: False
+    except Exception:
+        pass
+    try:
+        import peft.tuners.lora.torchao as tao
+        tao.dispatch_torchao = lambda *args, **kwargs: None
+        tao.is_torchao_available = lambda: False
+    except Exception:
+        pass
+
     peft_model = PeftModel.from_pretrained(
         base_model,
         str(adapter_p),
