@@ -14,7 +14,7 @@ import sys
 import tempfile
 import time
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Response
 from pydantic import BaseModel, Field
 
 # Rich emits status symbols during model loading; keep Windows subprocesses UTF-8.
@@ -48,6 +48,10 @@ class TranslationResponse(BaseModel):
     intent: str = "general_conversation"
     formality: str = "auto"
     suggested_replies: list[QuickReply] = []
+    confidence: float = 0.90
+    is_tm_match: bool = False
+    entities_preserved: list[str] = []
+    warning: str | None = None
 
 
 def _validate_language_pair(src: str, tgt: str) -> None:
@@ -120,7 +124,7 @@ async def translate_text(request: TextTranslationRequest) -> TranslationResponse
         formality=request.formality,
     )
     dt = round(time.perf_counter() - started, 3)
-    print(f"[TEXT] {request.src} -> {request.tgt} ({dt}s) [{smart_res['intent']}]: '{request.text}' => '{smart_res['translated_text']}'")
+    print(f"[TEXT] {request.src} -> {request.tgt} ({dt}s) [{smart_res['intent']}] (conf={smart_res.get('confidence')}): '{request.text}' => '{smart_res['translated_text']}'")
     return TranslationResponse(
         source_text=smart_res["source_text"],
         translated_text=smart_res["translated_text"],
@@ -130,6 +134,10 @@ async def translate_text(request: TextTranslationRequest) -> TranslationResponse
         intent=smart_res["intent"],
         formality=smart_res["formality"],
         suggested_replies=[QuickReply(**r) for r in smart_res.get("suggested_replies", [])],
+        confidence=smart_res.get("confidence", 0.90),
+        is_tm_match=smart_res.get("is_tm_match", False),
+        entities_preserved=smart_res.get("entities_preserved", []),
+        warning=smart_res.get("warning", None),
     )
 
 
@@ -170,7 +178,7 @@ async def translate_audio(
         dt = round(time.perf_counter() - started, 3)
         effective_src = result.get("src_lang", src)
         effective_tgt = result.get("tgt_lang", tgt)
-        print(f"[AUDIO] {effective_src} -> {effective_tgt} ({dt}s) [{result.get('intent')}]: '{result['source_text']}' => '{result['translated_text']}'")
+        print(f"[AUDIO] {effective_src} -> {effective_tgt} ({dt}s) [{result.get('intent')}] (conf={result.get('confidence')}): '{result['source_text']}' => '{result['translated_text']}'")
         return TranslationResponse(
             source_text=result["source_text"],
             translated_text=result["translated_text"],
@@ -180,8 +188,45 @@ async def translate_audio(
             intent=result.get("intent", "general_conversation"),
             formality=result.get("formality", "auto"),
             suggested_replies=[QuickReply(**r) for r in result.get("suggested_replies", [])],
+            confidence=result.get("confidence", 0.90),
+            is_tm_match=result.get("is_tm_match", False),
+            entities_preserved=result.get("entities_preserved", []),
+            warning=result.get("warning", None),
         )
     finally:
         await file.close()
         if temporary_path:
             os.unlink(temporary_path)
+
+
+class TTSRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=2_000)
+    lang: str = "orm"
+
+
+@app.get("/tts")
+async def tts_stream_get(
+    text: str = Query(..., min_length=1, max_length=2_000),
+    lang: str = Query(default="orm"),
+) -> Response:
+    """Stream synthesized speech audio as WAV for mobile or web playback."""
+    pipeline = get_pipeline()
+    wav_bytes = pipeline.tts.synthesize_to_bytes(text.strip(), lang=lang)
+    return Response(
+        content=wav_bytes,
+        media_type="audio/wav",
+        headers={"Content-Disposition": 'inline; filename="speech.wav"'},
+    )
+
+
+@app.post("/tts")
+async def tts_stream_post(request: TTSRequest) -> Response:
+    """Synthesize speech audio as WAV from JSON body."""
+    pipeline = get_pipeline()
+    wav_bytes = pipeline.tts.synthesize_to_bytes(request.text.strip(), lang=request.lang)
+    return Response(
+        content=wav_bytes,
+        media_type="audio/wav",
+        headers={"Content-Disposition": 'inline; filename="speech.wav"'},
+    )
+

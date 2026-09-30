@@ -14,6 +14,10 @@ void main() {
   testWidgets('translator shell renders and records a turn', (
     WidgetTester tester,
   ) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+
     await tester.pumpWidget(const TranslatorApp());
 
     expect(find.text('Lisan'), findsOneWidget);

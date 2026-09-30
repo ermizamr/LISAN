@@ -409,6 +409,15 @@ class SpeechRepair:
         # Step 1: Clean acoustic noise, laughter, and stutters
         text = cls.clean_noise_and_stutter(raw_text)
 
+        # Step 1b: Language-specific orthographic normalization (hudhaa for Oromo, homophones for Ge'ez)
+        if lang_code in ("orm", "gaz_Latn"):
+            text = re.sub(r"[’‘`´ʻʼ]", "'", text)
+            # In Qubee, 2 identical vowels/consonants are valid (gemination/long vowel),
+            # but 3 or more (e.g. 'aaaa', 'kkk') are acoustic drag/elongation: collapse to 2.
+            text = re.sub(r"([a-zA-Z])\1{2,}", r"\1\1", text)
+        elif lang_code in ("amh", "amh_Ethi", "tir", "tir_Ethi"):
+            text = cls.normalize_ethiopic_homophones(text)
+
         # Step 2: Expand spoken contractions & dialectal phonetic variations
         text = cls.expand_spoken_contractions(text, lang_code)
 

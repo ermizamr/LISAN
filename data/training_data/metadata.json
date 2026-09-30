@@ -1,0 +1,34 @@
+{
+  "total_samples": 68024,
+  "train_samples": 64623,
+  "val_samples": 3401,
+  "language_pairs": {
+    "orm->amh": 5257,
+    "amh->orm": 5251,
+    "tir->amh": 5242,
+    "amh->tir": 5242,
+    "som->amh": 5231,
+    "amh->som": 5231,
+    "eng->amh": 2212,
+    "amh->eng": 2212,
+    "orm->eng": 2194,
+    "eng->orm": 2188,
+    "tir->eng": 2190,
+    "eng->tir": 2190,
+    "som->eng": 2185,
+    "eng->som": 2185,
+    "orm->tir": 3174,
+    "tir->orm": 3168,
+    "orm->som": 3171,
+    "som->orm": 3165,
+    "som->tir": 3168,
+    "tir->som": 3168
+  },
+  "nllb_lang_mapping": {
+    "orm": "gaz_Latn",
+    "amh": "amh_Ethi",
+    "tir": "tir_Ethi",
+    "som": "som_Latn",
+    "eng": "eng_Latn"
+  }
+}

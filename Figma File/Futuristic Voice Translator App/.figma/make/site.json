@@ -1,0 +1,10 @@
+{
+  "description": "Real-time AI voice translation app designed for multilingual speakers in Ethiopia and the Horn of Africa offering intuitive, accessible language selection and clear audio-visual feedback.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

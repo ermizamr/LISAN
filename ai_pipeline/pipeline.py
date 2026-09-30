@@ -186,34 +186,47 @@ class EthioMultilingualSTT:
                 torch_dtype=torch.float32,
             )
             self.model.eval()
-            self._build_lexicon_decoder()
+            self._build_lexicon_decoders()
             console.print("[green]✓ Ethiopian Multilingual ASR loaded (Amharic · Afaan Oromo · Tigrinya)[/green]")
             return True
         except Exception as error:
             console.print(f"[yellow]EthioMultilingualSTT load failed: {error}[/yellow]")
             return False
 
-    def _build_lexicon_decoder(self):
+    def _build_lexicon_decoders(self):
+        """Build separate, language-isolated beam search decoders to prevent cross-language search bloat."""
         try:
             from pyctcdecode import build_ctcdecoder
             from pathlib import Path
+            import re
+
             lexicon_dir = Path(__file__).resolve().parent.parent / "data" / "lexicon"
-            unigrams_set = set()
-            for l_file in ["orm_unigrams.txt", "amh_unigrams.txt", "tir_unigrams.txt"]:
-                p = lexicon_dir / l_file
+            self.decoders = {}
+
+            vocab = self.processor.tokenizer.get_vocab()
+            inv = {idx: tok for tok, idx in vocab.items()}
+            labels = [inv[i] for i in range(len(vocab))]
+
+            lang_files = {
+                "om": "orm_unigrams.txt",
+                "am": "amh_unigrams.txt",
+                "ti": "tir_unigrams.txt",
+            }
+
+            for lang_key, fname in lang_files.items():
+                p = lexicon_dir / fname
                 if p.exists():
-                    unigrams_set.update([w.strip().lower() for w in p.read_text(encoding="utf-8").splitlines() if w.strip()])
-            
-            if unigrams_set:
-                vocab = self.processor.tokenizer.get_vocab()
-                inv = {idx: tok for tok, idx in vocab.items()}
-                labels = [inv[i] for i in range(len(vocab))]
-                self.decoder = build_ctcdecoder(labels, unigrams=list(unigrams_set))
-                console.print(f"[green]✓ EthioMultilingualSTT lexicon-guided beam search enabled ({len(unigrams_set):,} unigrams)[/green]")
-            else:
-                self.decoder = None
+                    # Read unigrams, normalizing hudhaa quotes for Qubee
+                    unigrams = [re.sub(r"[’‘`´ʻʼ]", "'", w.strip().lower()) for w in p.read_text(encoding="utf-8").splitlines() if w.strip()]
+                    if unigrams:
+                        self.decoders[lang_key] = build_ctcdecoder(labels, unigrams=unigrams)
+                        console.print(f"[green]✓ EthioMultilingualSTT dedicated '{lang_key}' beam decoder enabled ({len(unigrams):,} unigrams)[/green]")
+
+            # Fallback default
+            self.decoder = self.decoders.get("am") or (list(self.decoders.values())[0] if self.decoders else None)
         except Exception as e:
             console.print(f"[yellow]Lexicon decoder note: {e}[/yellow]")
+            self.decoders = {}
             self.decoder = None
 
     def load(self):
@@ -248,9 +261,13 @@ class EthioMultilingualSTT:
         with torch.no_grad():
             logits = self.model(**inputs).logits
 
-        if getattr(self, "decoder", None) is not None:
+        # Route strictly to language-isolated decoder to eliminate cross-language / cross-script confusion
+        norm_lang = "om" if language_code in ("om", "orm", "gaz_Latn") else ("ti" if language_code in ("ti", "tir", "tir_Ethi") else "am")
+        selected_decoder = getattr(self, "decoders", {}).get(norm_lang) or getattr(self, "decoder", None)
+
+        if selected_decoder is not None:
             try:
-                raw_text = self.decoder.decode(logits[0].float().cpu().numpy()).strip()
+                raw_text = selected_decoder.decode(logits[0].float().cpu().numpy()).strip()
             except Exception:
                 predicted_ids = torch.argmax(logits, dim=-1)
                 raw_text = self.processor.batch_decode(predicted_ids)[0].strip()
@@ -259,7 +276,10 @@ class EthioMultilingualSTT:
             raw_text = self.processor.batch_decode(predicted_ids)[0].strip()
 
         # Strip language token prefixes like [AMH], [ORM], [TIR], [SID], [WAL]
-        return re.sub(r"^\[[A-Za-z]+\]\s*", "", raw_text).strip()
+        raw_text = re.sub(r"^\[[A-Za-z]+\]\s*", "", raw_text).strip()
+        if norm_lang == "om":
+            raw_text = re.sub(r"[’‘`´ʻʼ]", "'", raw_text)
+        return raw_text
 
 
 
@@ -744,34 +764,160 @@ class NLLB200Translator:
 
 
 # ──────────────────────────────────────────────
-# TTS: pyttsx3 (offline, cross-platform)
+# TTS: Meta MMS-TTS (VITS) Neural Speech Engine
 # ──────────────────────────────────────────────
-class SimpleTTS:
-    """Text-to-Speech using pyttsx3 (works offline, cross-platform)."""
+class MMSTTSEngine:
+    """
+    Offline Text-to-Speech using Meta MMS-TTS (VITS) models.
+    Supports native speech synthesis for Ethiopian languages:
+      - Afaan Oromoo: facebook/mms-tts-orm
+      - Amharic: facebook/mms-tts-amh
+      - Tigrinya: facebook/mms-tts-tir
+      - Somali: facebook/mms-tts-som
+      - English: facebook/mms-tts-eng
+    Gracefully falls back to pyttsx3 if MMS model is unavailable.
+    """
+
+    MODEL_MAP = {
+        "orm": "facebook/mms-tts-orm",
+        "om": "facebook/mms-tts-orm",
+        "gaz_Latn": "facebook/mms-tts-orm",
+        "amh": "facebook/mms-tts-amh",
+        "am": "facebook/mms-tts-amh",
+        "amh_Ethi": "facebook/mms-tts-amh",
+        "tir": "facebook/mms-tts-tir",
+        "ti": "facebook/mms-tts-tir",
+        "tir_Ethi": "facebook/mms-tts-tir",
+        "som": "facebook/mms-tts-som",
+        "so": "facebook/mms-tts-som",
+        "som_Latn": "facebook/mms-tts-som",
+        "eng": "facebook/mms-tts-eng",
+        "en": "facebook/mms-tts-eng",
+        "eng_Latn": "facebook/mms-tts-eng",
+    }
 
     def __init__(self):
-        self.engine = None
+        self._models = {}
+        self._tokenizers = {}
+        self._pyttsx3_engine = None
 
-    def load(self):
-        import pyttsx3
-        console.print("[cyan]Loading TTS engine...[/cyan]")
-        self.engine = pyttsx3.init()
-        self.engine.setProperty("rate", 150)
-        console.print("[green]✓ TTS engine loaded[/green]")
+    def load(self, preload_langs=("orm", "amh")):
+        """Preload common TTS models into cache."""
+        console.print("[cyan]Initializing Meta MMS-TTS engine...[/cyan]")
+        for lang in preload_langs:
+            try:
+                self._get_model_and_tokenizer(lang)
+            except Exception as e:
+                console.print(f"[yellow]MMS-TTS preload note for '{lang}': {e}[/yellow]")
+        console.print("[green]✓ Meta MMS-TTS engine initialized (Oromo · Amharic · Tigrinya · Somali · English)[/green]")
 
-    def speak(self, text: str):
-        """Speak text aloud."""
-        if self.engine is None:
-            raise RuntimeError("Engine not loaded. Call load() first.")
-        self.engine.say(text)
-        self.engine.runAndWait()
+    def _get_model_and_tokenizer(self, lang: str):
+        norm_lang = (lang or "orm").lower().strip()
+        model_name = self.MODEL_MAP.get(norm_lang)
+        if not model_name:
+            model_name = self.MODEL_MAP["eng"]
 
-    def save(self, text: str, output_path: str):
-        """Save speech to audio file."""
-        if self.engine is None:
-            raise RuntimeError("Engine not loaded. Call load() first.")
-        self.engine.save_to_file(text, output_path)
-        self.engine.runAndWait()
+        if model_name in self._models and model_name in self._tokenizers:
+            return self._models[model_name], self._tokenizers[model_name]
+
+        from transformers import VitsModel, AutoTokenizer
+        import torch
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = VitsModel.from_pretrained(model_name)
+        model.eval()
+
+        self._models[model_name] = model
+        self._tokenizers[model_name] = tokenizer
+        return model, tokenizer
+
+    def synthesize_to_bytes(self, text: str, lang: str = "orm") -> bytes:
+        """Synthesize text to in-memory WAV audio bytes."""
+        import io
+        import soundfile as sf
+        import torch
+        import numpy as np
+
+        if not text or not text.strip():
+            buf = io.BytesIO()
+            sf.write(buf, np.zeros(1600, dtype=np.float32), samplerate=16000, format="WAV")
+            return buf.getvalue()
+
+        try:
+            model, tokenizer = self._get_model_and_tokenizer(lang)
+            inputs = tokenizer(text.strip(), return_tensors="pt")
+            with torch.no_grad():
+                output = model(**inputs).waveform
+
+            waveform = output[0].cpu().numpy()
+            sample_rate = model.config.sampling_rate
+
+            buf = io.BytesIO()
+            sf.write(buf, waveform, samplerate=sample_rate, format="WAV")
+            return buf.getvalue()
+        except Exception as e:
+            console.print(f"[yellow]MMS-TTS synthesize error ({lang}): {e}[/yellow]")
+            return self._fallback_wav_bytes(text)
+
+    def _fallback_wav_bytes(self, text: str) -> bytes:
+        """Emergency WAV bytes fallback using pyttsx3 or silence."""
+        import io
+        import tempfile
+        import os
+        import soundfile as sf
+        import numpy as np
+        try:
+            import pyttsx3
+            if self._pyttsx3_engine is None:
+                self._pyttsx3_engine = pyttsx3.init()
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                tmp_path = tmp.name
+            self._pyttsx3_engine.save_to_file(text, tmp_path)
+            self._pyttsx3_engine.runAndWait()
+            with open(tmp_path, "rb") as f:
+                data = f.read()
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            return data
+        except Exception:
+            buf = io.BytesIO()
+            sf.write(buf, np.zeros(1600, dtype=np.float32), samplerate=16000, format="WAV")
+            return buf.getvalue()
+
+    def synthesize_to_file(self, text: str, lang: str, output_path: str):
+        """Synthesize speech and save to a WAV file."""
+        wav_bytes = self.synthesize_to_bytes(text, lang=lang)
+        with open(output_path, "wb") as f:
+            f.write(wav_bytes)
+
+    def speak(self, text: str, lang: str = "orm"):
+        """Speak text aloud using sounddevice or fallback."""
+        try:
+            import io
+            import soundfile as sf
+            import sounddevice as sd
+
+            wav_bytes = self.synthesize_to_bytes(text, lang=lang)
+            data, sr = sf.read(io.BytesIO(wav_bytes), dtype="float32")
+            sd.play(data, sr)
+            sd.wait()
+        except Exception as e:
+            try:
+                import pyttsx3
+                if self._pyttsx3_engine is None:
+                    self._pyttsx3_engine = pyttsx3.init()
+                self._pyttsx3_engine.say(text)
+                self._pyttsx3_engine.runAndWait()
+            except Exception as e2:
+                console.print(f"[yellow]Audio playback error: {e2}[/yellow]")
+
+    def save(self, text: str, output_path: str, lang: str = "orm"):
+        """Save speech to file."""
+        self.synthesize_to_file(text, lang=lang, output_path=output_path)
+
+
+# Backward compatibility alias
+SimpleTTS = MMSTTSEngine
 
 
 # ──────────────────────────────────────────────
@@ -786,7 +932,7 @@ class TranslatorPipeline:
       - EthioMultilingualSTT: handles Oromo + Tigrinya STT (fallback for Amharic)
       - WhisperSTT: handles English + Somali
       - NLLB-200: translation between all 5 languages
-      - SimpleTTS: offline text-to-speech output
+      - MMSTTSEngine: Meta MMS-TTS offline neural speech output
     """
 
     def __init__(self, whisper_size: str = "tiny"):
@@ -794,7 +940,7 @@ class TranslatorPipeline:
         self.ethio_stt = EthioMultilingualSTT()   # Oromo + Tigrinya STT
         self.stt = WhisperSTT(model_size=whisper_size)  # English + Somali
         self.translator = NLLB200Translator()     # CTranslate2 INT8 (100% offline, ~600MB)
-        self.tts = SimpleTTS()
+        self.tts = MMSTTSEngine()
         self._loaded = False
 
     def load_all(self):
@@ -1019,21 +1165,24 @@ class TranslatorPipeline:
 
         return None
 
-    def _translate_clause(self, clause: str, src_lang_key: str, tgt_lang_key: str) -> str:
-        """Translate a single semantic clause via TM -> Patterns -> Glossary -> NLLB-200."""
+    def _translate_clause(self, clause: str, src_lang_key: str, tgt_lang_key: str) -> tuple[str, bool, list[str]]:
+        """Translate a single semantic clause via TM -> Patterns -> Glossary -> EntityShield + NLLB-200.
+        Returns: (translated_clause, is_tm_hit, preserved_entities)
+        """
         from ai_pipeline.glossary import preprocess_for_translation, postprocess_translation, check_exact_match
         from ai_pipeline.translation_memory import TranslationMemory
+        from ai_pipeline.entity_shield import EntityShield
 
         c_clean = preprocess_for_translation(clause, src_lang_key, tgt_lang_key)
         if not c_clean:
-            return ""
+            return "", False, []
 
         # 1. High-fidelity conversational Translation Memory (SQLite exact + fuzzy)
         try:
             tm_match = TranslationMemory.get_instance().lookup(c_clean, src_lang_key, tgt_lang_key)
             if tm_match:
                 console.print(f"[cyan]🎯 TM hit ({tm_match.dataset}, score={tm_match.score:.2f}): '{c_clean}' -> '{tm_match.target_text}'[/cyan]")
-                return tm_match.target_text
+                return tm_match.target_text, True, []
         except Exception as tm_err:
             console.print(f"[yellow]⚠ TM lookup error: {tm_err}[/yellow]")
 
@@ -1041,60 +1190,83 @@ class TranslatorPipeline:
         social_match = self._match_social_patterns(c_clean, src_lang_key, tgt_lang_key)
         if social_match:
             console.print(f"[cyan]🎯 Social pattern hit: '{c_clean}' -> '{social_match}'[/cyan]")
-            return social_match
+            return social_match, True, []
 
         # 3. Direct glossary exact match
         direct_match = check_exact_match(c_clean, src_lang_key, tgt_lang_key)
         if direct_match:
-            return direct_match
+            return direct_match, True, []
 
-        # 4. Local Offline Neural Machine Translation
+        # 4. Entity Shield & Local Offline Neural Machine Translation
+        shielded_clause, entities = EntityShield.shield(c_clean, src_lang_key)
+
         src = LANGUAGES[src_lang_key]["nllb_code"]
         tgt = LANGUAGES[tgt_lang_key]["nllb_code"]
-        raw_result = self.translator.translate(c_clean, src, tgt)
-        return postprocess_translation(raw_result, src_lang_key, tgt_lang_key)
+        raw_result = self.translator.translate(shielded_clause, src, tgt)
 
-    def _translate_base(self, text: str, src_lang_key: str, tgt_lang_key: str) -> str:
-        """Core offline translation: repair -> clause segmentation -> TM / NLLB-200 -> postprocess."""
+        if entities:
+            raw_result = EntityShield.unshield(raw_result, entities, src_lang_key, tgt_lang_key)
+
+        final_clause = postprocess_translation(raw_result, src_lang_key, tgt_lang_key)
+        preserved_names = [e.name_part for e in entities]
+        return final_clause, False, preserved_names
+
+    def _translate_base(self, text: str, src_lang_key: str, tgt_lang_key: str) -> dict:
+        """Core offline translation: repair -> clause segmentation -> TM / EntityShield / NLLB-200 -> Guard."""
         import re
         from ai_pipeline.speech_repair import SpeechRepair
         from ai_pipeline.glossary import preprocess_for_translation, postprocess_translation
+        from ai_pipeline.hallucination_guard import HallucinationGuard
 
-        # 1. On-device speech repair & intent reconstruction (cleans noise, expands slurs, completes thoughts)
+        # 1. On-device speech repair & intent reconstruction
         repaired_text = SpeechRepair.repair(text, src_lang_key)
         clean_text = preprocess_for_translation(repaired_text, src_lang_key, tgt_lang_key)
 
         if not clean_text:
-            return ""
-
-        # 2. Clause-level decomposition for compound spoken sentences
-        # Split on sentence/clause delimiters: [.?!።፧!]
-        clauses = [c.strip() for c in re.split(r'(?<=[.?!።፧!])\s+', clean_text) if c.strip()]
-        
-        if len(clauses) > 1:
-            # Check if there is an exact (>= 0.98) full match across the entire multi-clause text
-            try:
-                from ai_pipeline.translation_memory import TranslationMemory
-                tm_match = TranslationMemory.get_instance().lookup(clean_text, src_lang_key, tgt_lang_key, min_similarity=0.98)
-                if tm_match and tm_match.score >= 0.98:
-                    console.print(f"[cyan]🎯 Full TM exact hit ({tm_match.dataset}): '{clean_text}' -> '{tm_match.target_text}'[/cyan]")
-                    return tm_match.target_text
-            except Exception:
-                pass
-
-            UNCLEAR_FALLBACKS = {
-                "[Audio unclear]", "[ድምፁ ግልጽ አይደለም]", "[Sagaleen hin dhagahamne]",
-                "[ድምጺ ንጹር ኣይኮነን]", "[Codku ma cadda]"
+            return {
+                "translated_text": "",
+                "confidence": 1.0,
+                "is_tm_match": False,
+                "entities_preserved": [],
+                "warning": None,
             }
-            translated_clauses = []
+
+        # 2. Full TM check across compound sentences
+        try:
+            from ai_pipeline.translation_memory import TranslationMemory
+            tm_match = TranslationMemory.get_instance().lookup(clean_text, src_lang_key, tgt_lang_key, min_similarity=0.98)
+            if tm_match and tm_match.score >= 0.98:
+                console.print(f"[cyan]🎯 Full TM exact hit ({tm_match.dataset}): '{clean_text}' -> '{tm_match.target_text}'[/cyan]")
+                return {
+                    "translated_text": tm_match.target_text,
+                    "confidence": 1.0,
+                    "is_tm_match": True,
+                    "entities_preserved": [],
+                    "warning": None,
+                }
+        except Exception:
+            pass
+
+        clauses = [c.strip() for c in re.split(r'(?<=[.?!።፧!])\s+', clean_text) if c.strip()]
+        all_tm = True
+        preserved_entities: list[str] = []
+        translated_clauses: list[str] = []
+
+        UNCLEAR_FALLBACKS = {
+            "[Audio unclear]", "[ድምፁ ግልጽ አይደለም]", "[Sagaleen hin dhagahamne]",
+            "[ድምጺ ንጹር ኣይኮነን]", "[Codku ma cadda]"
+        }
+
+        if len(clauses) > 1:
             for clause in clauses:
-                trans = self._translate_clause(clause, src_lang_key, tgt_lang_key)
+                trans, is_tm, ents = self._translate_clause(clause, src_lang_key, tgt_lang_key)
+                if not is_tm:
+                    all_tm = False
+                preserved_entities.extend(ents)
                 if trans:
                     trans_str = trans.strip()
-                    # Capitalize first letter for Latin languages
                     if tgt_lang_key in ("orm", "eng", "som") and trans_str:
                         trans_str = trans_str[0].upper() + trans_str[1:]
-                    # Preserve question mark if source clause had one
                     if clause.endswith("?") and not trans_str.endswith("?"):
                         trans_str = re.sub(r"[.።]+$", "", trans_str) + "?"
                     elif (clause.endswith("።") or clause.endswith(".")) and not (
@@ -1104,23 +1276,31 @@ class TranslatorPipeline:
                     translated_clauses.append(trans_str)
 
             valid_clauses = [c for c in translated_clauses if c not in UNCLEAR_FALLBACKS]
-            if valid_clauses:
-                return " ".join(valid_clauses)
-            if translated_clauses:
-                return translated_clauses[0]
+            assembled = " ".join(valid_clauses) if valid_clauses else (translated_clauses[0] if translated_clauses else "")
+        else:
+            trans, is_tm, ents = self._translate_clause(clean_text, src_lang_key, tgt_lang_key)
+            all_tm = is_tm
+            preserved_entities.extend(ents)
+            assembled = trans
 
-        # Single clause path: Check TM first
-        try:
-            from ai_pipeline.translation_memory import TranslationMemory
-            tm_match = TranslationMemory.get_instance().lookup(clean_text, src_lang_key, tgt_lang_key)
-            if tm_match:
-                console.print(f"[cyan]🎯 Full TM hit ({tm_match.dataset}, score={tm_match.score:.2f}): '{clean_text}' -> '{tm_match.target_text}'[/cyan]")
-                return tm_match.target_text
-        except Exception as tm_err:
-            console.print(f"[yellow]⚠ TM lookup error: {tm_err}[/yellow]")
+        # 3. Evaluate output through Hallucination & Degeneration Guard
+        guard_res = HallucinationGuard.evaluate(
+            source_text=clean_text,
+            translated_text=assembled,
+            src_lang=src_lang_key,
+            tgt_lang=tgt_lang_key,
+            is_tm_hit=all_tm,
+            entities_shielded=len(preserved_entities),
+            entities_restored=len(preserved_entities),
+        )
 
-        # Single clause path
-        return self._translate_clause(clean_text, src_lang_key, tgt_lang_key)
+        return {
+            "translated_text": guard_res.clean_translation,
+            "confidence": guard_res.confidence,
+            "is_tm_match": guard_res.is_tm_hit,
+            "entities_preserved": preserved_entities,
+            "warning": guard_res.warning,
+        }
 
     def translate_text(
         self,
@@ -1144,7 +1324,7 @@ class TranslatorPipeline:
         session_id: str | None = None,
         formality: str = "auto",
     ) -> dict:
-        """Full contextual translation returning intent, formality, and suggested quick-replies."""
+        """Full contextual translation returning intent, formality, quick-replies, and guard confidence."""
         from ai_pipeline.smart_engine import SmartEngine
         smart_res = SmartEngine.process_and_translate(
             text=text,
@@ -1162,6 +1342,10 @@ class TranslatorPipeline:
             "intent": smart_res.intent.value,
             "formality": smart_res.formality,
             "suggested_replies": smart_res.suggested_replies,
+            "confidence": smart_res.confidence,
+            "is_tm_match": smart_res.is_tm_match,
+            "entities_preserved": smart_res.entities_preserved,
+            "warning": smart_res.warning,
         }
 
     def _detect_audio_language(self, audio_path: str, pair: tuple[str, str]) -> str | None:
@@ -1323,7 +1507,7 @@ class TranslatorPipeline:
         if speak_result:
             t2 = time.time()
             console.print("[cyan]Step 3: Speaking translation...[/cyan]")
-            self.tts.speak(translated)
+            self.tts.speak(translated, lang=effective_tgt)
             tts_time = time.time() - t2
             console.print(f"[green]  Spoken ({tts_time:.1f}s)[/green]")
 
@@ -1338,6 +1522,10 @@ class TranslatorPipeline:
             "intent": smart_res["intent"],
             "formality": smart_res["formality"],
             "suggested_replies": smart_res["suggested_replies"],
+            "confidence": smart_res.get("confidence", 0.90),
+            "is_tm_match": smart_res.get("is_tm_match", False),
+            "entities_preserved": smart_res.get("entities_preserved", []),
+            "warning": smart_res.get("warning", None),
             "stt_time": round(stt_time, 2),
             "trans_time": round(trans_time, 2),
             "tts_time": round(tts_time, 2),
@@ -1398,7 +1586,7 @@ def run_demo():
             text = input(f"\nEnter text in {LANGUAGES[src]['name']}: ").strip()
             result = pipeline.translate_text(text, src, tgt)
             console.print(f"\n[bold green]Translation:[/bold green] {result}")
-            pipeline.tts.speak(result)
+            pipeline.tts.speak(result, lang=tgt)
 
         elif choice == "2":
             secs = input("Recording duration in seconds (default 5): ").strip()

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -51,7 +52,7 @@ class TranslatorApi {
         'text': text,
         'src': source,
         'tgt': target,
-        if (sessionId != null) 'session_id': sessionId,
+        'session_id': ?sessionId,
         'formality': formality,
       }),
     );
@@ -69,6 +70,13 @@ class TranslatorApi {
       suggestedReplies: rawReplies
           .map((e) => QuickReplyItem.fromJson(e as Map<String, dynamic>))
           .toList(),
+      confidence: (body['confidence'] as num?)?.toDouble() ?? 0.90,
+      isTmMatch: body['is_tm_match'] as bool? ?? false,
+      entitiesPreserved: (body['entities_preserved'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+      warning: body['warning'] as String?,
     );
   }
 
@@ -112,7 +120,28 @@ class TranslatorApi {
       suggestedReplies: rawReplies
           .map((e) => QuickReplyItem.fromJson(e as Map<String, dynamic>))
           .toList(),
+      confidence: (body['confidence'] as num?)?.toDouble() ?? 0.90,
+      isTmMatch: body['is_tm_match'] as bool? ?? false,
+      entitiesPreserved: (body['entities_preserved'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+      warning: body['warning'] as String?,
     );
+  }
+
+  Uri getTtsUri(String text, String lang) {
+    return baseUri.replace(
+      path: '${baseUri.path}/tts'.replaceAll('//', '/'),
+      queryParameters: {'text': text, 'lang': lang},
+    );
+  }
+
+  Future<Uint8List> synthesizeSpeech(String text, String lang) async {
+    final uri = getTtsUri(text, lang);
+    final response = await _client.get(uri);
+    _ensureSuccess(response);
+    return response.bodyBytes;
   }
 
   void _ensureSuccess(http.Response response) {
@@ -163,6 +192,10 @@ class TranslationResult {
     this.intent = 'general_conversation',
     this.formality = 'auto',
     this.suggestedReplies = const [],
+    this.confidence = 0.90,
+    this.isTmMatch = false,
+    this.entitiesPreserved = const [],
+    this.warning,
   });
 
   final String sourceText;
@@ -173,6 +206,10 @@ class TranslationResult {
   final String intent;
   final String formality;
   final List<QuickReplyItem> suggestedReplies;
+  final double confidence;
+  final bool isTmMatch;
+  final List<String> entitiesPreserved;
+  final String? warning;
 }
 
 class TranslatorApiException implements Exception {
