@@ -90,13 +90,24 @@ python scripts/train_nllb_lora.py --batch_size 16 --grad_accum 2 --merge_and_exp
 python scripts/run_all_training.py --all
 ```
 
-### 3. Run the Backend Server
+### 3. Online Cloud GPU Training (Google Colab / Kaggle / RunPod)
+
+Train completely in the cloud with zero local GPU requirements:
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ermizamr/LISAN/blob/main/notebooks/lisan_online_gpu_training.ipynb)
+
+- **Google Colab**: Click the badge above, set runtime to **T4 GPU**, and select **Runtime $\rightarrow$ Run all**.
+- **Kaggle**: Create a new notebook, turn on GPU (T4 x2 or P100), and upload [`notebooks/lisan_online_gpu_training.ipynb`](notebooks/lisan_online_gpu_training.ipynb).
+- **RunPod**: Spin up an RTX 4090 ($0.44/hr) with PyTorch template, run `git clone https://github.com/ermizamr/LISAN.git && cd LISAN && pip install -r training_requirements.txt && python scripts/run_all_training.py --all`.
+
+
+### 4. Run the Backend Server
 
 ```bash
 uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 4. Run the Flutter Mobile App
+### 5. Run the Flutter Mobile App
 
 ```bash
 cd ethiopian_translator
