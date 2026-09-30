@@ -15,6 +15,7 @@ import tempfile
 import time
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Response
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 # Rich emits status symbols during model loading; keep Windows subprocesses UTF-8.
@@ -82,6 +83,14 @@ app = FastAPI(
     version="0.1.0",
     description="Offline translation bridge for the Flutter client.",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
