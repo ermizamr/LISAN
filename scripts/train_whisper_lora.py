@@ -27,6 +27,19 @@ if hasattr(sys.stdout, "reconfigure"):
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
+# Neutralize torchao version conflict in Google Colab / cloud environments
+try:
+    import peft.import_utils
+    orig_is_torchao = getattr(peft.import_utils, "is_torchao_available", None)
+    def _safe_is_torchao():
+        try:
+            return orig_is_torchao() if orig_is_torchao else False
+        except ImportError:
+            return False
+    peft.import_utils.is_torchao_available = _safe_is_torchao
+except Exception:
+    pass
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="LISAN AI: Whisper LoRA Fine-Tuning")
@@ -45,6 +58,8 @@ def parse_args():
     parser.add_argument("--use_4bit", action="store_true", default=True)
     parser.add_argument("--no_4bit", dest="use_4bit", action="store_false")
     parser.add_argument("--merge_and_save", action="store_true", default=True)
+    parser.add_argument("--merge_only", action="store_true", default=False,
+                        help="Skip training and only merge existing adapter into standalone model")
     return parser.parse_args()
 
 
@@ -103,6 +118,12 @@ def main():
     else:
         use_bf16 = False
     print("=" * 70)
+
+    if args.merge_only:
+        print("Running in --merge_only mode (skipping dataset loading and training)...")
+        from scripts.merge_whisper_lora import merge_whisper
+        merge_whisper(args.base_model, args.output_dir, args.merged_dir)
+        return
 
     # Check manifest files
     train_p = Path(args.train_manifest)
@@ -263,25 +284,12 @@ def main():
 
     # 8. Merge and Save Standalone Model
     if args.merge_and_save:
-        print("\n" + "=" * 60)
-        print("🔗 Merging LoRA weights into standalone Whisper checkpoint...")
-        print("=" * 60)
         del model
         del trainer
         if cuda_avail:
             torch.cuda.empty_cache()
-
-        base_reload = WhisperForConditionalGeneration.from_pretrained(
-            args.base_model,
-            torch_dtype=torch.float16 if cuda_avail else torch.float32,
-            device_map="auto" if cuda_avail else None,
-        )
-        peft_model = PeftModel.from_pretrained(base_reload, args.output_dir)
-        merged = peft_model.merge_and_unload()
-
-        merged.save_pretrained(args.merged_dir)
-        processor.save_pretrained(args.merged_dir)
-        print(f"✓ Merged Whisper model saved to: {args.merged_dir}")
+        from scripts.merge_whisper_lora import merge_whisper
+        merge_whisper(args.base_model, args.output_dir, args.merged_dir)
 
     print("\n" + "=" * 70)
     print("🎉 LISAN AI: WHISPER STT FINE-TUNING COMPLETED SUCCESSFULLY!")

@@ -30,6 +30,19 @@ if hasattr(sys.stdout, "reconfigure"):
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
+# Neutralize torchao version conflict in Google Colab / cloud environments
+try:
+    import peft.import_utils
+    orig_is_torchao = getattr(peft.import_utils, "is_torchao_available", None)
+    def _safe_is_torchao():
+        try:
+            return orig_is_torchao() if orig_is_torchao else False
+        except ImportError:
+            return False
+    peft.import_utils.is_torchao_available = _safe_is_torchao
+except Exception:
+    pass
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="LISAN AI: NLLB-200 LoRA Fine-Tuning & Export")
@@ -51,6 +64,8 @@ def parse_args():
     parser.add_argument("--no_4bit", dest="use_4bit", action="store_false")
     parser.add_argument("--merge_and_export", action="store_true", default=True, help="Automatically merge LoRA and convert to CTranslate2 INT8")
     parser.add_argument("--eval_benchmarks", action="store_true", default=False, help="Run HornMT evaluation after training")
+    parser.add_argument("--merge_only", action="store_true", default=False,
+                        help="Skip training and only merge existing LoRA adapter into standalone model and CTranslate2 INT8")
     return parser.parse_args()
 
 
@@ -157,6 +172,12 @@ def main():
         use_bf16 = False
     print(f"Precision Mode    : {'bf16' if use_bf16 else ('fp16' if cuda_avail else 'fp32')}")
     print("=" * 70)
+
+    if args.merge_only:
+        print("Running in --merge_only mode (skipping dataset loading and training)...")
+        from scripts.merge_nllb_lora import merge_nllb
+        merge_nllb(args.base_model, args.output_dir, args.merged_dir, args.export_c2_dir)
+        return
 
     # Validate dataset files
     if not Path(args.train_file).exists() or not Path(args.val_file).exists():
@@ -311,40 +332,12 @@ def main():
 
     # 11. Merge and Export
     if args.merge_and_export:
-        print("\n" + "=" * 60)
-        print("🔗 Merging LoRA Adapter back into Base NLLB-200...")
-        print("=" * 60)
         del model
         del trainer
         if cuda_avail:
             torch.cuda.empty_cache()
-
-        print(f"Reloading clean base model: {args.base_model}...")
-        base_model_reload = AutoModelForSeq2SeqLM.from_pretrained(
-            args.base_model,
-            torch_dtype=torch.float16 if cuda_avail else torch.float32,
-            device_map="auto" if cuda_avail else None,
-        )
-
-        print(f"Applying LoRA adapter from {args.output_dir}...")
-        peft_model = PeftModel.from_pretrained(base_model_reload, args.output_dir)
-        merged_model = peft_model.merge_and_unload()
-
-        print(f"Saving merged standalone model to {args.merged_dir}...")
-        merged_model.save_pretrained(args.merged_dir)
-        tokenizer.save_pretrained(args.merged_dir)
-        print("✓ Merged model saved successfully.")
-
-        del base_model_reload
-        del peft_model
-        del merged_model
-        if cuda_avail:
-            torch.cuda.empty_cache()
-
-        # Convert to CTranslate2 INT8
-        success = convert_to_ctranslate2(args.merged_dir, args.export_c2_dir)
-        if success:
-            test_ctranslate2_inference(args.export_c2_dir)
+        from scripts.merge_nllb_lora import merge_nllb
+        merge_nllb(args.base_model, args.output_dir, args.merged_dir, args.export_c2_dir)
 
     # 12. Evaluate Benchmarks
     if args.eval_benchmarks:
