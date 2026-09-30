@@ -75,12 +75,12 @@ Adjust batch sizes and quantization according to the GPU's physical VRAM:
 ## 🌐 Step 2: Machine Translation (NMT) Fine-Tuning
 
 ### Goal:
-Fine-tune Meta `facebook/nllb-200-distilled-600M` with LoRA on 68,000+ curated Ethiopian conversational sentence pairs, merge the LoRA weights, and convert directly to **CTranslate2 INT8** for sub-100ms offline CPU/GPU inference.
+Fine-tune Meta `facebook/nllb-200-distilled-600M` with LoRA on **113,456** curated Ethiopian and inter-local sentence pairs, merge the LoRA weights, and convert directly to **CTranslate2 INT8** for sub-100ms offline CPU/GPU inference.
 
 ### Dataset Ready in Repository:
-- Train set: `data/training_data/train.jsonl` (64,623 pairs)
-- Validation set: `data/training_data/val.jsonl` (3,401 pairs)
-- Covers 20 bidirectional pairs (Amharic $\leftrightarrow$ Oromo, Amharic $\leftrightarrow$ Tigrinya, Amharic $\leftrightarrow$ Somali, Amharic $\leftrightarrow$ English, etc.).
+- Train set: `data/training_data/train.jsonl` (**107,784** pairs)
+- Validation set: `data/training_data/val.jsonl` (**5,672** pairs)
+- Massive inter-local representation: **16,000** pairs each for Oromo $\leftrightarrow$ Amharic, Tigrinya $\leftrightarrow$ Amharic, Somali $\leftrightarrow$ Amharic, Oromo $\leftrightarrow$ Tigrinya, Oromo $\leftrightarrow$ Somali, Somali $\leftrightarrow$ Tigrinya, plus English pairs!
 
 ### Execution Command:
 ```powershell

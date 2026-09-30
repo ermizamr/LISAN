@@ -11,21 +11,21 @@ Ready for immediate fine-tuning with PyTorch, Hugging Face `datasets`, and `peft
 
 | File | Size | Samples | Description |
 |---|---|---|---|
-| [`train.jsonl`](file:///c:/Users/admin/Documents/antigravity/amazing-bardeen/data/training_data/train.jsonl) | 29.36 MB | **64,623** | 95% stratified split across 20 language pairs |
-| [`val.jsonl`](file:///c:/Users/admin/Documents/antigravity/amazing-bardeen/data/training_data/val.jsonl) | 1.54 MB | **3,401** | 5% stratified validation split |
-| [`metadata.json`](file:///c:/Users/admin/Documents/antigravity/amazing-bardeen/data/training_data/metadata.json) | 720 bytes | 68,024 total | Pair counts, FLORES codes, and schema metadata |
+| [`train.jsonl`](file:///c:/Users/admin/Documents/antigravity/amazing-bardeen/data/training_data/train.jsonl) | 42.84 MB | **107,784** | 95% stratified split across all 20 language pairs |
+| [`val.jsonl`](file:///c:/Users/admin/Documents/antigravity/amazing-bardeen/data/training_data/val.jsonl) | 2.26 MB | **5,672** | 5% stratified validation split |
+| [`metadata.json`](file:///c:/Users/admin/Documents/antigravity/amazing-bardeen/data/training_data/metadata.json) | 720 bytes | **113,456** total | Pair counts, FLORES codes, and schema metadata |
 
 #### Language Pair Breakdown:
-- **Oromo $\leftrightarrow$ Amharic**: 10,508 pairs (`orm->amh`: 5,257, `amh->orm`: 5,251)
-- **Tigrinya $\leftrightarrow$ Amharic**: 10,484 pairs (`tir->amh`: 5,242, `amh->tir`: 5,242)
-- **Somali $\leftrightarrow$ Amharic**: 10,462 pairs (`som->amh`: 5,231, `amh->som`: 5,231)
-- **English $\leftrightarrow$ Amharic**: 4,424 pairs (`eng->amh`: 2,212, `amh->eng`: 2,212)
-- **Oromo $\leftrightarrow$ English**: 4,382 pairs (`orm->eng`: 2,194, `eng->orm`: 2,188)
-- **Tigrinya $\leftrightarrow$ English**: 4,380 pairs (`tir->eng`: 2,190, `eng->tir`: 2,190)
-- **Somali $\leftrightarrow$ English**: 4,370 pairs (`som->eng`: 2,185, `eng->som`: 2,185)
-- **Oromo $\leftrightarrow$ Tigrinya**: 6,342 pairs (`orm->tir`: 3,174, `tir->orm`: 3,168)
-- **Oromo $\leftrightarrow$ Somali**: 6,336 pairs (`orm->som`: 3,171, `som->orm`: 3,165)
-- **Somali $\leftrightarrow$ Tigrinya**: 6,336 pairs (`som->tir`: 3,168, `tir->som`: 3,168)
+- **Oromo $\leftrightarrow$ Amharic**: **16,000** pairs (`orm->amh`: 8,000, `amh->orm`: 8,000)
+- **Tigrinya $\leftrightarrow$ Amharic**: **16,000** pairs (`tir->amh`: 8,000, `amh->tir`: 8,000)
+- **Somali $\leftrightarrow$ Amharic**: **16,000** pairs (`som->amh`: 8,000, `amh->som`: 8,000)
+- **Oromo $\leftrightarrow$ Tigrinya**: **16,000** pairs (`orm->tir`: 8,000, `tir->orm`: 8,000)
+- **Oromo $\leftrightarrow$ Somali**: **16,000** pairs (`orm->som`: 8,000, `som->orm`: 8,000)
+- **Somali $\leftrightarrow$ Tigrinya**: **16,000** pairs (`som->tir`: 8,000, `tir->som`: 8,000)
+- **English $\leftrightarrow$ Amharic**: 4,382 pairs (`eng->amh`: 2,191, `amh->eng`: 2,191)
+- **English $\leftrightarrow$ Oromo**: 4,362 pairs (`eng->orm`: 2,178, `orm->eng`: 2,184)
+- **English $\leftrightarrow$ Tigrinya**: 4,362 pairs (`eng->tir`: 2,181, `tir->eng`: 2,181)
+- **English $\leftrightarrow$ Somali**: 4,350 pairs (`eng->som`: 2,175, `som->eng`: 2,175)
 
 ### B. Translation Memory Database (`data/translation_memory.db`)
 - **Format**: SQLite 3 with FTS5 Full-Text Search.
