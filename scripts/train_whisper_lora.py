@@ -240,21 +240,27 @@ def main():
     data_collator = DataCollatorSpeechSeq2SeqWithPadding(processor=processor)
 
     # 5. Training Arguments
-    training_args = Seq2SeqTrainingArguments(
-        output_dir=args.output_dir,
-        per_device_train_batch_size=args.batch_size,
-        per_device_eval_batch_size=args.batch_size,
-        gradient_accumulation_steps=args.grad_accum,
-        learning_rate=args.learning_rate,
-        warmup_steps=50,
-        num_train_epochs=args.num_epochs,
-        eval_strategy="epoch",
-        save_strategy="epoch",
-        fp16=cuda_avail and not use_bf16,
-        bf16=use_bf16,
-        logging_steps=25,
-        report_to="none",
-    )
+    import inspect
+    training_args_dict = {
+        "output_dir": args.output_dir,
+        "per_device_train_batch_size": args.batch_size,
+        "per_device_eval_batch_size": args.batch_size,
+        "gradient_accumulation_steps": args.grad_accum,
+        "learning_rate": args.learning_rate,
+        "warmup_steps": 50,
+        "num_train_epochs": args.num_epochs,
+        "eval_strategy": "epoch",
+        "save_strategy": "epoch",
+        "fp16": cuda_avail and not use_bf16,
+        "bf16": use_bf16,
+        "logging_steps": 25,
+        "report_to": "none",
+    }
+    arg_params = inspect.signature(Seq2SeqTrainingArguments.__init__).parameters
+    if "eval_strategy" not in arg_params and "evaluation_strategy" in arg_params:
+        training_args_dict["evaluation_strategy"] = training_args_dict.pop("eval_strategy")
+    valid_args = {k: v for k, v in training_args_dict.items() if k in arg_params}
+    training_args = Seq2SeqTrainingArguments(**valid_args)
 
     import inspect
     trainer_kwargs = {
