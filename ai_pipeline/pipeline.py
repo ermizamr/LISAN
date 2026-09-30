@@ -19,7 +19,10 @@ import sys
 import time
 import tempfile
 import numpy as np
-import sounddevice as sd
+try:
+    import sounddevice as sd
+except Exception:
+    sd = None
 import soundfile as sf
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -473,6 +476,8 @@ class WhisperSTT:
 
     def record_audio(self, duration: int = 5, sample_rate: int = 16000) -> str:
         """Record audio from microphone and save to temp file."""
+        if sd is None:
+            raise RuntimeError("Live microphone recording is not supported in headless environments (sounddevice/PortAudio missing). Use file audio inputs.")
         console.print(f"[yellow]🎙️  Recording for {duration} seconds...[/yellow]")
         audio_data = sd.rec(
             int(duration * sample_rate),
