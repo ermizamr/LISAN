@@ -71,11 +71,23 @@ source .venv/bin/activate  # Or on Windows: .venv\Scripts\activate
 pip install -r ai_pipeline/requirements.txt
 ```
 
-### 2. Download or Optimize Translation Models
+### 2. GPU Training & Fine-Tuning (Gaming PC / Workstation)
 
-Convert and quantize NLLB-200 to CTranslate2 INT8:
-```bash
-python scripts/train_nmt_c2.py
+For instructions on fine-tuning on an NVIDIA GPU machine:
+👉 See **[AGENT_TRAINING_RUNBOOK.md](AGENT_TRAINING_RUNBOOK.md)** and **[RESOURCES_CATALOG.md](RESOURCES_CATALOG.md)**
+
+```powershell
+# 1. 1-click CUDA environment setup (Windows PowerShell)
+powershell -ExecutionPolicy Bypass -File .\setup_training_env.ps1
+
+# 2. Check GPU acceleration & get auto-tuned hyperparameters
+python scripts/check_gpu_env.py
+
+# 3. Fine-tune NLLB-200, merge LoRA, and export to CTranslate2 INT8
+python scripts/train_nllb_lora.py --batch_size 16 --grad_accum 2 --merge_and_export
+
+# 4. Or run the full master training pipeline (NMT + STT + TTS)
+python scripts/run_all_training.py --all
 ```
 
 ### 3. Run the Backend Server

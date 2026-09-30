@@ -1,73 +1,83 @@
-# AI ASSISTANT PROMPT — Ethiopian Language Translator Hackathon
+# 🤖 AI ASSISTANT PROMPT — LISAN (ልሳን) PROJECT & GPU TRAINING
 
-## Context
-I am building an offline AI-based real-time language translator for Ethiopian languages as a hackathon project (20-day deadline). We are on Day 3 of 20.
+## 🎯 Context
+You are working on **LISAN (ልሳን)**, a high-performance offline speech-to-speech translation system for Ethiopian and Horn of Africa languages:
+- **Amharic (አማርኛ)**
+- **Afaan Oromo**
+- **Tigrinya (ትግርኛ)**
+- **Somali (Soomaali)**
+- **English**
 
-## What's Already Done
-The Python AI pipeline is COMPLETE and tested:
-- **Whisper tiny** for speech-to-text (0.41s, 100% accuracy)
-- **NLLB-200 distilled 600M** for translation (~5s, Amharic/Oromo/English/Somali/Tigrinya)
-- **pyttsx3** for text-to-speech (0.21s)
-- **Total latency: 5.91s end-to-end, fully offline**
+The project combines:
+1. **STT (Speech-to-Text)**: Native Wav2Vec2-BERT models (`snapwre/hohe-asr-amharic`, `badrex/Ethio-ASR-multilingual-600M`) with lexicon beam search + OpenAI Whisper.
+2. **NMT (Machine Translation)**: Meta NLLB-200 distilled 600M fine-tuned on Ethiopian corpora + CTranslate2 INT8 quantization + SQLite Translation Memory.
+3. **TTS (Text-to-Speech)**: Meta MMS-TTS neural voice synthesis (`facebook/mms-tts-*`) + Piper TTS.
+4. **Mobile Client**: Flutter application with offline voice-to-voice translation.
 
-All code is in: `C:\Users\admin\Documents\antigravity\amazing-bardeen\ai_pipeline\`
+---
 
-## Read First
-Before doing anything, read this file completely:
-`C:\Users\admin\Documents\antigravity\amazing-bardeen\HANDOFF.md`
+## ⚡ WORKING ON A GAMING PC (GPU TRAINING & FINE-TUNING)
 
-It contains:
-- Full architecture overview
-- All known issues and their fixes
-- Language codes (IMPORTANT: Oromo uses gaz_Latn not orm_Latn)
-- Windows-specific gotchas (pyttsx3, PowerShell, UTF-8)
-- Remaining 17-day roadmap
+If you are running on an NVIDIA GPU gaming PC to train or fine-tune models, **READ THIS FIRST**:
+👉 **[`AGENT_TRAINING_RUNBOOK.md`](file:///c:/Users/admin/Documents/antigravity/amazing-bardeen/AGENT_TRAINING_RUNBOOK.md)**
+👉 **[`RESOURCES_CATALOG.md`](file:///c:/Users/admin/Documents/antigravity/amazing-bardeen/RESOURCES_CATALOG.md)**
 
-## What To Do Next (Day 4)
-
-### Step 1: Test live microphone with real voice
+### 1-Minute GPU Quickstart
 ```powershell
-cd C:\Users\admin\Documents\antigravity\amazing-bardeen\ai_pipeline
-$env:PYTHONUTF8=1; python live_translate.py
-# Choose option 2 (single phrase) or 3 (conversation mode)
-# Test: speak English, hear Amharic
-# Test: speak Amharic, hear English
+# 1. Force UTF-8 encoding in PowerShell
+$env:PYTHONUTF8 = "1"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+# 2. Automated environment setup (Installs PyTorch with CUDA 12.1 + dependencies)
+powershell -ExecutionPolicy Bypass -File .\setup_training_env.ps1
+
+# 3. Check GPU acceleration & get auto-tuned hyperparameters
+python scripts/check_gpu_env.py
+
+# 4. Run automated training & optimization pipeline
+python scripts/run_all_training.py --all
 ```
 
-### Step 2: If mic works, start Flutter app (Day 5)
-```powershell
-# Check Flutter is installed
-flutter --version
+### Key Training Commands by Pillar:
+- **Translation (NMT)**:
+  ```powershell
+  python scripts/train_nllb_lora.py --batch_size 16 --grad_accum 2 --merge_and_export --eval_benchmarks
+  ```
+  *Trains on 68,000+ pairs in `data/training_data/`, merges LoRA weights, and exports to `models_optimized/nllb_int8`.*
+- **Speech-to-Text (STT)**:
+  ```powershell
+  python scripts/prepare_stt_data.py --source fleurs
+  python scripts/train_whisper_lora.py --base_model openai/whisper-small --batch_size 8 --grad_accum 4 --merge_and_save
+  python scripts/evaluate_stt.py
+  ```
+- **Text-to-Speech (TTS)**:
+  ```powershell
+  python scripts/benchmark_tts.py
+  ```
 
-# If not installed:
-# Download from https://flutter.dev/docs/get-started/install/windows
-# Add to PATH: C:\flutter\bin
+---
 
-# Create the app
-flutter create ethiopian_translator
-cd ethiopian_translator
-```
+## ⚠️ Critical Rules & Gotchas
+1. **Always set `$env:PYTHONUTF8=1;`** in PowerShell before any Python command (prevents CP1252 crash on Ethiopic text).
+2. **Never call `pyttsx3.save_to_file()` on Windows** — it hangs the SAPI5 COM loop. Always use `.speak()` or Meta MMS-TTS.
+3. **NLLB Language Codes**:
+   - Afaan Oromo: `gaz_Latn` (NOT `orm_Latn`!)
+   - Amharic: `amh_Ethi`
+   - Tigrinya: `tir_Ethi`
+   - Somali: `som_Latn`
+   - English: `eng_Latn`
+4. **PyTorch with CUDA**: On Windows, always install PyTorch with the CUDA wheel:
+   `pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121`
+5. **BitsAndBytes on Windows**: Use `bitsandbytes>=0.43.0` for native Windows 64-bit CUDA support.
+6. **Separate PowerShell commands**: The `&&` operator is not valid in legacy PowerShell; run commands on separate lines or with `;`.
 
-### Step 3: Build FastAPI bridge (Day 7)
-Create `C:\Users\admin\Documents\antigravity\amazing-bardeen\server.py`
-```python
-pip install fastapi uvicorn python-multipart
-# Then build REST API wrapping the pipeline
-```
+---
 
-## Critical Rules
-1. **Always use `$env:PYTHONUTF8=1;`** before any Python command in PowerShell
-2. **Never call `pyttsx3.save_to_file()`** — it hangs on Windows. Only use `.speak()`
-3. **Oromo NLLB code is `gaz_Latn`** not `orm_Latn`
-4. **Whisper loads audio via soundfile numpy array** — not file path (FFmpeg bypass)
-5. **Use separate PowerShell commands** — `&&` is not valid in PowerShell
-
-## Key File: pipeline.py
-The main class is `TranslatorPipeline`. Import and use like this:
-```python
-from pipeline import TranslatorPipeline
-pipeline = TranslatorPipeline(whisper_size="tiny")
-pipeline.load_all()  # ~15s including warm-up
-result = pipeline.translate_text("Hello", "eng", "amh")
-result = pipeline.live_translate("eng", "amh", duration=5)
-```
+## 📁 Key File Locations
+- Core Pipeline: [`ai_pipeline/pipeline.py`](file:///c:/Users/admin/Documents/antigravity/amazing-bardeen/ai_pipeline/pipeline.py)
+- Hybrid Smart Engine: [`ai_pipeline/smart_engine.py`](file:///c:/Users/admin/Documents/antigravity/amazing-bardeen/ai_pipeline/smart_engine.py)
+- Speech Repair & Healing: [`ai_pipeline/speech_repair.py`](file:///c:/Users/admin/Documents/antigravity/amazing-bardeen/ai_pipeline/speech_repair.py)
+- FastAPI Server: [`server.py`](file:///c:/Users/admin/Documents/antigravity/amazing-bardeen/server.py)
+- Parallel Training Data: [`data/training_data/`](file:///c:/Users/admin/Documents/antigravity/amazing-bardeen/data/training_data/)
+- Translation Memory DB: [`data/translation_memory.db`](file:///c:/Users/admin/Documents/antigravity/amazing-bardeen/data/translation_memory.db)
+- Lexicon Unigrams: [`data/lexicon/`](file:///c:/Users/admin/Documents/antigravity/amazing-bardeen/data/lexicon/)
