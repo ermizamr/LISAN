@@ -283,14 +283,21 @@ def main():
         report_to="none",
     )
 
-    trainer = Seq2SeqTrainer(
-        model=model,
-        args=training_args,
-        train_dataset=tokenized_datasets["train"],
-        eval_dataset=tokenized_datasets["val"],
-        data_collator=data_collator,
-        tokenizer=tokenizer,
-    )
+    import inspect
+    trainer_kwargs = {
+        "model": model,
+        "args": training_args,
+        "train_dataset": tokenized_datasets["train"],
+        "eval_dataset": tokenized_datasets["val"],
+        "data_collator": data_collator,
+    }
+    sig = inspect.signature(Seq2SeqTrainer.__init__)
+    if "processing_class" in sig.parameters:
+        trainer_kwargs["processing_class"] = tokenizer
+    elif "tokenizer" in sig.parameters:
+        trainer_kwargs["tokenizer"] = tokenizer
+
+    trainer = Seq2SeqTrainer(**trainer_kwargs)
 
     # 9. Train
     print("\nStarting LoRA Fine-Tuning...")

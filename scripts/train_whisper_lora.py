@@ -65,7 +65,7 @@ class DataCollatorSpeechSeq2SeqWithPadding:
         labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
 
         # Cut BOS token if needed
-        if (labels[:, 0] == self.processor.tokenizer.bos_token_id).all().cpu().item():
+        if labels.shape[1] > 0 and (labels[:, 0] == self.processor.tokenizer.bos_token_id).all().cpu().item():
             labels = labels[:, 1:]
 
         batch["labels"] = labels
@@ -158,7 +158,11 @@ def main():
                     audio = sig.resample(audio, num_samples).astype(np.float32)
 
                 feat = feature_extractor(audio, sampling_rate=16000).input_features[0]
-                tokenizer.set_prefix_tokens(language=lang if lang in ("am", "om", "so", "ti", "en") else "en", task="transcribe")
+                # Whisper supports 'am' (Amharic), 'so' (Somali), 'en' (English).
+                # For Tigrinya (Ge'ez script), Amharic ('am') prefix token ensures Fidel script generation.
+                # For Oromo (Latin script), English ('en') prefix token ensures Latin alphabet generation.
+                whisper_lang = lang if lang in ("am", "so") else ("am" if lang == "ti" else "en")
+                tokenizer.set_prefix_tokens(language=whisper_lang, task="transcribe")
                 lab = tokenizer(text).input_ids
 
                 input_features.append(feat)
@@ -231,14 +235,21 @@ def main():
         report_to="none",
     )
 
-    trainer = Seq2SeqTrainer(
-        args=training_args,
-        model=model,
-        train_dataset=train_tokenized,
-        eval_dataset=val_tokenized,
-        data_collator=data_collator,
-        tokenizer=processor.feature_extractor,
-    )
+    import inspect
+    trainer_kwargs = {
+        "args": training_args,
+        "model": model,
+        "train_dataset": train_tokenized,
+        "eval_dataset": val_tokenized,
+        "data_collator": data_collator,
+    }
+    sig = inspect.signature(Seq2SeqTrainer.__init__)
+    if "processing_class" in sig.parameters:
+        trainer_kwargs["processing_class"] = processor
+    elif "tokenizer" in sig.parameters:
+        trainer_kwargs["tokenizer"] = processor.feature_extractor
+
+    trainer = Seq2SeqTrainer(**trainer_kwargs)
 
     # 6. Execute Training
     print("\nStarting Whisper LoRA Training...")

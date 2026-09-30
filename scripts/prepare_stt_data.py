@@ -38,16 +38,27 @@ def parse_args():
     parser.add_argument("--max_samples_per_lang", type=int, default=500,
                         help="Max audio samples to load per language (to fit gaming PC training sessions)")
     parser.add_argument("--output_dir", type=str, default=str(OUTPUT_DIR))
+    parser.add_argument("--skip_if_exists", action="store_true", default=False,
+                        help="Skip download if manifests already exist and are populated")
     return parser.parse_args()
 
 
-def prepare_fleurs(languages: list[str], max_samples: int, out_dir: Path):
+def prepare_fleurs(languages: list[str], max_samples: int, out_dir: Path, skip_if_exists: bool = False):
     """Download and process Google FLEURS speech datasets."""
     print("\n" + "=" * 60)
     print("📥 Loading Google FLEURS Speech Corpus...")
     print(f"   Languages: {languages}")
     print(f"   Max samples per language: {max_samples}")
     print("=" * 60)
+
+    train_manifest = out_dir / "train_manifest.jsonl"
+    val_manifest = out_dir / "val_manifest.jsonl"
+    if skip_if_exists and train_manifest.exists() and val_manifest.exists() and train_manifest.stat().st_size > 0:
+        print(f"✓ Found existing manifest files in {out_dir}:")
+        print(f"  • Train: {train_manifest}")
+        print(f"  • Val  : {val_manifest}")
+        print("  Skipping download.")
+        return True
 
     try:
         from datasets import load_dataset
@@ -73,10 +84,13 @@ def prepare_fleurs(languages: list[str], max_samples: int, out_dir: Path):
     for lang in languages:
         print(f"\nProcessing FLEURS {lang}...")
         try:
-            ds = load_dataset("google/fleurs", lang, trust_remote_code=True)
-        except Exception as e:
-            print(f"✗ Failed to load FLEURS {lang}: {e}")
-            continue
+            ds = load_dataset("google/fleurs", lang)
+        except Exception:
+            try:
+                ds = load_dataset("google/fleurs", lang, trust_remote_code=True)
+            except Exception as e:
+                print(f"✗ Failed to load FLEURS {lang}: {e}")
+                continue
 
         whisper_code, lisan_code = fleurs_lang_map.get(lang, ("en", "eng"))
 
@@ -201,12 +215,12 @@ def main():
     out_p = Path(args.output_dir)
 
     if args.source == "fleurs":
-        prepare_fleurs(args.languages, args.max_samples_per_lang, out_p)
+        prepare_fleurs(args.languages, args.max_samples_per_lang, out_p, skip_if_exists=args.skip_if_exists)
     elif args.source == "local":
         prepare_local(out_p)
     else:
         # Default try fleurs, fallback local
-        if not prepare_fleurs(args.languages, args.max_samples_per_lang, out_p):
+        if not prepare_fleurs(args.languages, args.max_samples_per_lang, out_p, skip_if_exists=args.skip_if_exists):
             prepare_local(out_p)
 
 
