@@ -1,17 +1,10 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ethiopian_translator/main.dart';
 
 void main() {
-  testWidgets('translator shell renders and records a turn', (
+  testWidgets('translator shell renders and navigates full Figma flow', (
     WidgetTester tester,
   ) async {
     tester.view.physicalSize = const Size(800, 1200);
@@ -20,15 +13,54 @@ void main() {
 
     await tester.pumpWidget(const TranslatorApp());
 
+    // 1. Ready state verification
     expect(find.text('Lisan'), findsOneWidget);
-    expect(find.text('Tap to speak'), findsOneWidget);
+    expect(find.text('Advanced settings'), findsOneWidget);
+    expect(find.text('VOICE TRANSLATOR'), findsOneWidget);
+    expect(find.textContaining('Speak freely.'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.mic_rounded));
+    // 2. Press dial -> Speaking state
+    final dialFinder = find.byKey(const ValueKey('mic_dial_button'));
+    final gesture = await tester.startGesture(tester.getCenter(dialFinder));
     await tester.pump();
-    expect(find.text('Listening...'), findsOneWidget);
+    expect(find.text('LISTENING NOW'), findsOneWidget);
+    expect(find.text('I’m listening…'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.stop_rounded));
+    // 3. Release dial -> Language selection sheet
+    await gesture.up();
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
-    expect(find.text('I need help, please.'), findsOneWidget);
+
+    expect(find.text('WE HEARD YOU'), findsOneWidget);
+    expect(find.text('Which language\ndid you speak?'), findsOneWidget);
+    expect(find.text('አማርኛ'), findsOneWidget);
+    expect(find.text('ትግርኛ'), findsOneWidget);
+    expect(find.text('Soomaali'), findsOneWidget);
+    expect(find.text('Afaan Oromoo'), findsNWidgets(2));
+
+    // 4. Tap Amharic card -> Result screen
+    await tester.tap(find.text('አማርኛ'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+
+    expect(find.text('TRANSLATION READY'), findsOneWidget);
+    expect(find.text('You’re understood.'), findsOneWidget);
+    expect(find.text('TRANSLATION OUTPUT'), findsOneWidget);
+    expect(find.text('Verified Memory'), findsOneWidget);
+    expect(find.text('Speak again'), findsOneWidget);
+
+    // 5. Tap Speak again -> Returns to ready
+    await tester.tap(find.text('Speak again'));
+    await tester.pumpAndSettle();
+    expect(find.text('VOICE TRANSLATOR'), findsOneWidget);
+
+    // 6. Tap Advanced settings -> Settings view
+    await tester.tap(find.text('Advanced settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('PERSONALIZE LISAN'), findsOneWidget);
+    expect(find.text('Advanced\nsettings'), findsOneWidget);
+    expect(find.text('Translate into'), findsOneWidget);
+    expect(find.text('Automatic two-way translation'), findsOneWidget);
   });
 }
