@@ -359,6 +359,8 @@ def main():
         del trainer
         if cuda_avail:
             torch.cuda.empty_cache()
+        if str(ROOT_DIR) not in sys.path:
+            sys.path.insert(0, str(ROOT_DIR))
         from scripts.merge_nllb_lora import merge_nllb
         merge_nllb(args.base_model, args.output_dir, args.merged_dir, args.export_c2_dir)
 
