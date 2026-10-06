@@ -182,13 +182,14 @@ class TranslationMemory:
         text: str,
         src_lang: str,
         tgt_lang: str,
-        min_similarity: float = 0.78,
+        min_similarity: float = 0.95,
     ) -> TMMatch | None:
         """
         Dynamically lookup a translation without hardcoded rules.
         
         1. Exact normalized match (< 0.5ms).
         2. Automated fuzzy token & character similarity matching across dataset entries (> min_similarity).
+           Strictly guards against substituting distinct nouns or content words.
         """
         query_raw = text.strip()
         if not query_raw:
@@ -221,10 +222,12 @@ class TranslationMemory:
                 dataset=row["source_dataset"],
             )
 
-        # Step 2: Automated Fuzzy Token & Character Matching
+        # Step 2: Automated Fuzzy Token & Character Matching (Strict Threshold >= 0.95)
         query_tokens = set(query_norm.split())
         if not query_tokens:
             return None
+
+        query_content = {w for w in query_tokens if len(w) >= 4}
 
         cur = conn.execute(
             """
@@ -244,8 +247,15 @@ class TranslationMemory:
 
             if not cand_tokens:
                 continue
+
+            # Length ratio guard
             ratio = len(query_tokens) / len(cand_tokens)
-            if ratio < 0.35 or ratio > 2.8:
+            if ratio < 0.70 or ratio > 1.4:
+                continue
+
+            # Distinct content words (nouns/verbs/adjectives >= 4 chars) MUST match
+            cand_content = {w for w in cand_tokens if len(w) >= 4}
+            if query_content != cand_content:
                 continue
 
             # Compute intersection & overlap
@@ -260,7 +270,7 @@ class TranslationMemory:
             # Character sequence similarity
             seq_ratio = SequenceMatcher(None, query_norm, cand_norm).ratio()
 
-            tok_score = 0.5 * jaccard + 0.5 * overlap if overlap >= 0.75 else jaccard
+            tok_score = 0.5 * jaccard + 0.5 * overlap if overlap >= 0.85 else jaccard
             combined_score = 0.40 * tok_score + 0.60 * seq_ratio
 
             if combined_score > best_score and combined_score >= min_similarity:

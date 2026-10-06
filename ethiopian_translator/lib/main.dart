@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'lisan_icons.dart';
 import 'recording_service.dart';
@@ -96,15 +100,7 @@ const List<AppLanguage> kLanguages = [
   ),
 ];
 
-const Map<String, String> kDefaultPhrases = {
-  'AM': 'ወደ ቦሌ እንዴት መሄድ እችላለሁ?',
-  'OR': "Akkamitti gara Boolee deemuu danda'a?",
-  'TI': 'ናብ ቦሌ ብኸመይ ክኸይድ ይኽእል?',
-  'SO': 'Sideen ku tagi karaa Bole?',
-  'EN': 'How can I get to Bole?',
-};
-
-enum AppView { ready, speaking, language, result, settings }
+enum AppView { ready, speaking, language, loading, result, settings }
 
 // ---------------------------------------------------------------------------
 // Root Application
@@ -136,7 +132,7 @@ class TranslatorApp extends StatelessWidget {
 // ---------------------------------------------------------------------------
 class ConversationPage extends StatefulWidget {
   ConversationPage({super.key, AudioCapture? audioCapture, TranslatorApi? api})
-    : audioCapture = audioCapture ?? const DemoRecordingService(),
+    : audioCapture = audioCapture ?? RecordingService(),
       api = api ?? TranslatorApi();
 
   final AudioCapture audioCapture;
@@ -150,7 +146,9 @@ class _ConversationPageState extends State<ConversationPage>
     with TickerProviderStateMixin {
   AppView _view = AppView.ready;
   AppLanguage _language = kLanguages[0]; // Amharic
-  AppLanguage _targetLanguage = kLanguages[4]; // English
+  AppLanguage _targetLanguage =
+      kLanguages[0]; // Default Ethiopian partner: Amharic
+  bool _isEnglishSpeaker = true;
 
   bool _playing = false;
   String _defaultTarget = 'English';
@@ -163,10 +161,10 @@ class _ConversationPageState extends State<ConversationPage>
   int _conversationTurn = 0;
 
   // Real backend transaction states
-  String _sourceText = 'ወደ ቦሌ እንዴት መሄድ እችላለሁ?';
-  String _outputText = 'How can I get to Bole?';
-  final String _audioDurationText = '0:04';
-  bool _isTmMatch = true;
+  String _sourceText = '';
+  String _outputText = '';
+  final String _audioDurationText = '0:00';
+  bool _isTmMatch = false;
   bool _isLoading = false;
   String? _recordedFilePath;
 
@@ -187,6 +185,8 @@ class _ConversationPageState extends State<ConversationPage>
         setState(() => _playing = false);
       }
     });
+
+    _loadPersonaConfigAndPromptIfNeeded();
   }
 
   @override
@@ -198,13 +198,563 @@ class _ConversationPageState extends State<ConversationPage>
   }
 
   // -------------------------------------------------------------------------
-  // Interaction Handlers
+  // Speaker Persona First-Launch Prompt & Persistence
   // -------------------------------------------------------------------------
-  Future<void> _beginSpeaking() async {
-    if (_view != AppView.ready &&
-        !(_view == AppView.result && _conversationMode)) {
+  Future<File> _getConfigFile() async {
+    final dir = await getApplicationDocumentsDirectory();
+    return File('${dir.path}/lisan_persona_config.json');
+  }
+
+  Future<void> _loadPersonaConfigAndPromptIfNeeded() async {
+    try {
+      final file = await _getConfigFile();
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        final data = jsonDecode(content) as Map<String, dynamic>;
+        final isEng = data['is_english_speaker'] as bool? ?? true;
+        final partnerCode = data['partner_lang'] as String? ?? 'amh';
+        final partner = kLanguages.firstWhere(
+          (l) => l.backendKey == partnerCode,
+          orElse: () => kLanguages[0],
+        );
+        if (mounted) {
+          setState(() {
+            _isEnglishSpeaker = isEng;
+            _targetLanguage = partner;
+          });
+        }
+      } else {
+        // First launch! Prompt the user with the aesthetic alert box
+        Future.delayed(const Duration(milliseconds: 250), () {
+          if (mounted) {
+            _showPersonaSetupDialog(canDismiss: false);
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading persona config: $e');
+    }
+  }
+
+  Future<void> _savePersonaConfig() async {
+    try {
+      final file = await _getConfigFile();
+      final data = {
+        'has_configured_persona': true,
+        'is_english_speaker': _isEnglishSpeaker,
+        'partner_lang': _targetLanguage.backendKey,
+      };
+      await file.writeAsString(jsonEncode(data));
+    } catch (e) {
+      debugPrint('Error saving persona config: $e');
+    }
+  }
+
+  void _showPersonaSetupDialog({required bool canDismiss}) {
+    showDialog(
+      context: context,
+      barrierDismissible: canDismiss,
+      barrierColor: const Color(0xB80E100D),
+      builder: (dialogCtx) {
+        int dialogStep = 0; // 0: Question, 1: Partner selection (if YES)
+        return PopScope(
+          canPop: canDismiss,
+          child: StatefulBuilder(
+            builder: (ctx, setDialogState) {
+              return Dialog(
+                backgroundColor: Colors.transparent,
+                insetPadding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 24,
+                ),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: LisanTheme.well,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: const Color(0xFFAAA293),
+                      width: 3.5,
+                    ),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x99000000),
+                        offset: Offset(0, 14),
+                        blurRadius: 35,
+                      ),
+                      BoxShadow(color: Color(0xFFFFF9EA), offset: Offset(0, 1)),
+                    ],
+                  ),
+                  padding: const EdgeInsets.all(20),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    child: dialogStep == 0
+                        ? _buildPersonaQuestionStep(
+                            canDismiss: canDismiss,
+                            onClose: () => Navigator.of(dialogCtx).pop(),
+                            onYes: () {
+                              setDialogState(() => dialogStep = 1);
+                            },
+                            onQetil: () {
+                              Navigator.of(dialogCtx).pop();
+                              setState(() {
+                                _isEnglishSpeaker = false;
+                                if (_targetLanguage.code == 'EN') {
+                                  _targetLanguage = kLanguages[0];
+                                }
+                              });
+                              _savePersonaConfig();
+                            },
+                          )
+                        : _buildPartnerSelectionStep(
+                            onBack: () => setDialogState(() => dialogStep = 0),
+                            onSelectPartner: (lang) {
+                              Navigator.of(dialogCtx).pop();
+                              setState(() {
+                                _isEnglishSpeaker = true;
+                                _targetLanguage = lang;
+                              });
+                              _savePersonaConfig();
+                            },
+                          ),
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPersonaQuestionStep({
+    required bool canDismiss,
+    required VoidCallback onClose,
+    required VoidCallback onYes,
+    required VoidCallback onQetil,
+  }) {
+    return Column(
+      key: const ValueKey('step_question'),
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Micro-header
+        Row(
+          children: [
+            Container(
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF181B18),
+                border: Border.all(color: const Color(0xFF3B4135)),
+              ),
+              child: const Center(
+                child: LisanIcon(
+                  LisanIconType.spark,
+                  size: 12,
+                  color: LisanTheme.acid,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'LISAN / MODEL 01 · SYSTEM SETUP',
+              style: TextStyle(
+                color: Color(0xFF888B82),
+                fontSize: 8,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const Spacer(),
+            if (canDismiss)
+              GestureDetector(
+                onTap: onClose,
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFF1A1D1A),
+                    border: Border.all(color: const Color(0xFF383D33)),
+                  ),
+                  child: const Center(
+                    child: Icon(
+                      Icons.close,
+                      size: 13,
+                      color: Color(0xFFC3C8BB),
+                    ),
+                  ),
+                ),
+              )
+            else
+              Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: LisanTheme.acid,
+                  boxShadow: [BoxShadow(color: LisanTheme.acid, blurRadius: 4)],
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Serif Title & Ge'ez
+        const Text(
+          'Are you an English speaker?',
+          style: TextStyle(
+            fontFamily: 'serif',
+            fontSize: 25,
+            color: Colors.white,
+            height: 1.1,
+            letterSpacing: -0.5,
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'እንግሊዝኛ ተናጋሪ ነዎት?',
+          style: TextStyle(
+            color: LisanTheme.orange,
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // Explanatory Micro-Copy
+        const Text(
+          'Select YES to translate between English and Ethiopian languages. Choose ቀጥል for local language translation only.',
+          style: TextStyle(color: Color(0xFFA2A69A), fontSize: 11, height: 1.4),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'የአገር ውስጥ ቋንቋዎችን ብቻ ለመተርጎም «ቀጥል»ን ይጫኑ።',
+          style: TextStyle(color: Color(0xFF7A7E73), fontSize: 10),
+        ),
+        const SizedBox(height: 20),
+
+        // 1. YES Button (Hero Action)
+        GestureDetector(
+          onTap: onYes,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(13),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFFFF7752),
+                  LisanTheme.orange,
+                  Color(0xFFBA381E),
+                ],
+              ),
+              border: Border.all(color: const Color(0xFFFFA085), width: 1.2),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x66F05A36),
+                  offset: Offset(0, 4),
+                  blurRadius: 10,
+                ),
+                BoxShadow(
+                  color: Color(0x38000000),
+                  offset: Offset(0, 2),
+                  blurRadius: 4,
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withValues(alpha: 0.22),
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.language, color: Colors.white, size: 20),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'YES',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      Text(
+                        'I speak English · Auto: EN ⇄ Ethio',
+                        style: TextStyle(
+                          color: Color(0xFFFFEAE3),
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.arrow_forward_ios,
+                  color: Colors.white,
+                  size: 14,
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // 2. ቀጥል Button (Intra-Ethiopian Only / Normal Part)
+        GestureDetector(
+          onTap: onQetil,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1B1E1A),
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(color: const Color(0xFF454B3E), width: 1.2),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x38000000),
+                  offset: Offset(0, 3),
+                  blurRadius: 6,
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: LisanTheme.acid.withValues(alpha: 0.15),
+                    border: Border.all(
+                      color: LisanTheme.acid.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  child: const Center(
+                    child: Text(
+                      'ቀ',
+                      style: TextStyle(
+                        color: LisanTheme.acid,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'ቀጥል',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                      Text(
+                        'Ethiopian Only · የአገር ውስጥ ቋንቋዎች',
+                        style: TextStyle(
+                          color: Color(0xFF9EA396),
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.check, color: LisanTheme.acid, size: 18),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPartnerSelectionStep({
+    required VoidCallback onBack,
+    required ValueChanged<AppLanguage> onSelectPartner,
+  }) {
+    final ethiopianLangs = kLanguages.where((l) => l.code != 'EN').toList();
+
+    return Column(
+      key: const ValueKey('step_partner'),
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            GestureDetector(
+              onTap: onBack,
+              child: Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFF1A1D1A),
+                  border: Border.all(color: const Color(0xFF383D33)),
+                ),
+                child: const Center(
+                  child: Icon(
+                    Icons.arrow_back,
+                    size: 14,
+                    color: Color(0xFFC3C8BB),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'SELECT CONVERSATION PARTNER',
+              style: TextStyle(
+                color: Color(0xFF888B82),
+                fontSize: 8,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.1,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        const Text(
+          'Who are you speaking with?',
+          style: TextStyle(
+            fontFamily: 'serif',
+            fontSize: 23,
+            color: Colors.white,
+            height: 1.15,
+            letterSpacing: -0.5,
+          ),
+        ),
+        const SizedBox(height: 3),
+        const Text(
+          'የአጋርዎን ቋንቋ ይምረጡ',
+          style: TextStyle(
+            color: LisanTheme.orange,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // Grid of 4 Ethiopian Languages
+        for (final lang in ethiopianLangs)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: GestureDetector(
+              onTap: () => onSelectPartner(lang),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1B1E1A),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFF3B4134)),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x2E000000),
+                      offset: Offset(0, 2),
+                      blurRadius: 4,
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: lang.tone.withValues(alpha: 0.2),
+                        border: Border.all(
+                          color: lang.tone.withValues(alpha: 0.6),
+                        ),
+                      ),
+                      child: Center(
+                        child: LanguageSymbolWidget(
+                          symbol: lang.symbol,
+                          size: 16,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          lang.native,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          '${lang.name} (${lang.code})',
+                          style: const TextStyle(
+                            color: Color(0xFF888B82),
+                            fontSize: 9.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    const Icon(
+                      Icons.arrow_forward_ios,
+                      color: Color(0xFF888B82),
+                      size: 12,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Interaction Handlers (Voice & Text)
+  // -------------------------------------------------------------------------
+  DateTime? _pressStartTime;
+  bool _isRecording = false;
+
+  Future<void> _onDialDown() async {
+    if (_isRecording) {
+      // User tapped again while recording: finish & submit!
+      await _stopAndSubmitRecording();
       return;
     }
+
+    if (_view != AppView.ready && _view != AppView.result) {
+      return;
+    }
+
+    _pressStartTime = DateTime.now();
+    _isRecording = true;
 
     setState(() {
       _view = AppView.speaking;
@@ -215,11 +765,33 @@ class _ConversationPageState extends State<ConversationPage>
       _recordedFilePath = await widget.audioCapture.start();
     } catch (e) {
       debugPrint('Audio capture start error: $e');
+      _isRecording = false;
+      if (mounted) {
+        setState(() => _view = AppView.ready);
+      }
     }
   }
 
-  Future<void> _finishSpeaking() async {
-    if (_view != AppView.speaking) return;
+  Future<void> _onDialUp() async {
+    if (!_isRecording || _pressStartTime == null) return;
+
+    final elapsed = DateTime.now().difference(_pressStartTime!).inMilliseconds;
+    if (elapsed >= 500) {
+      // User held the button while speaking (push-to-talk)
+      await _stopAndSubmitRecording();
+    } else {
+      // Short tap: leave recording active until next tap
+      debugPrint('Short tap: hands-free recording active.');
+    }
+  }
+
+  Future<void> _beginSpeaking() => _onDialDown();
+  Future<void> _finishSpeaking() => _stopAndSubmitRecording();
+
+  Future<void> _stopAndSubmitRecording() async {
+    if (!_isRecording && _view != AppView.speaking) return;
+    _isRecording = false;
+    _pressStartTime = null;
 
     String? path;
     try {
@@ -231,12 +803,16 @@ class _ConversationPageState extends State<ConversationPage>
       debugPrint('Audio capture stop error: $e');
     }
 
-    await Future.delayed(const Duration(milliseconds: 240));
+    await Future.delayed(const Duration(milliseconds: 200));
     if (!mounted) return;
 
     if (_conversationMode) {
-      final source = _conversationTurn.isEven ? _firstLanguage : _secondLanguage;
-      final target = _conversationTurn.isEven ? _secondLanguage : _firstLanguage;
+      final source = _conversationTurn.isEven
+          ? _firstLanguage
+          : _secondLanguage;
+      final target = _conversationTurn.isEven
+          ? _secondLanguage
+          : _firstLanguage;
       setState(() {
         _language = source;
         _targetLanguage = target;
@@ -244,18 +820,25 @@ class _ConversationPageState extends State<ConversationPage>
       });
       await _executeTranslation(source: source, target: target);
     } else {
-      setState(() {
-        _view = AppView.language;
-      });
+      // Normal Voice Mode: prompt user with aesthetic "Translate to" select box
+      if (_recordedFilePath != null && _recordedFilePath!.isNotEmpty) {
+        setState(() {
+          _view = AppView.ready;
+        });
+        _showTranslateToPrompt();
+      } else {
+        setState(() {
+          _view = AppView.ready;
+        });
+      }
     }
   }
 
   Future<void> _chooseLanguage(AppLanguage chosen) async {
-    final preferred =
-        kLanguages.firstWhere(
-          (item) => item.name == _defaultTarget,
-          orElse: () => kLanguages[4],
-        );
+    final preferred = kLanguages.firstWhere(
+      (item) => item.name == _defaultTarget,
+      orElse: () => kLanguages[4],
+    );
     final fallback = chosen.code == 'EN' ? kLanguages[0] : kLanguages[4];
     final target = preferred.code == chosen.code ? fallback : preferred;
 
@@ -269,40 +852,118 @@ class _ConversationPageState extends State<ConversationPage>
   }
 
   Future<void> _executeTranslation({
-    required AppLanguage source,
+    AppLanguage? source,
     required AppLanguage target,
   }) async {
     setState(() {
+      _isLoading = true;
+      _view = AppView.loading;
+    });
+
+    final audioPath = _recordedFilePath;
+    _recordedFilePath = null; // Reset so next turn requires fresh speech
+
+    try {
+      if (audioPath == null || audioPath.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _sourceText = 'No audio recorded';
+            _outputText =
+                'ድምፅ አልተቀረጸም - እባክዎ ማይክራፎኑን ነክተው ይናገሩ (Please tap mic and speak clearly)';
+            _isTmMatch = false;
+            _isLoading = false;
+            _view = AppView.result;
+          });
+        }
+        return;
+      }
+
+      final apiFuture = widget.api.translateAudio(
+        filePath: audioPath,
+        source:
+            source?.backendKey ??
+            (_smartDetect ? 'auto' : _language.backendKey),
+        target: target.backendKey,
+        speakerMode: _isEnglishSpeaker ? 'english_speaker' : 'ethiopian_only',
+      );
+      // Guarantee minimum animation dwell time so user experiences the aesthetic animation
+      final minAnimationDelay = Future.delayed(
+        const Duration(milliseconds: 1400),
+      );
+
+      final results = await Future.wait([apiFuture, minAnimationDelay]);
+      final result = results[0] as TranslationResult;
+
+      if (mounted) {
+        final src = result.sourceText.trim();
+        final tgt = result.translatedText.trim();
+        final bool hadSpeech = src.isNotEmpty && tgt.isNotEmpty;
+
+        final detectedSource = kLanguages.firstWhere(
+          (l) => l.backendKey == result.sourceLanguage,
+          orElse: () => source ?? _language,
+        );
+        final effectiveTarget = kLanguages.firstWhere(
+          (l) => l.backendKey == result.targetLanguage,
+          orElse: () => target,
+        );
+
+        setState(() {
+          _language = detectedSource;
+          _targetLanguage = effectiveTarget;
+          _sourceText = hadSpeech ? src : 'No speech detected';
+          _outputText = hadSpeech
+              ? tgt
+              : 'ድምፅ አልተሰማም - እባክዎ ቀርበው ይናገሩ (No speech heard. Speak closer to the phone mic)';
+          _isTmMatch = result.isTmMatch;
+          _isLoading = false;
+          _view = AppView.result;
+        });
+
+        if (_autoPlay && hadSpeech) {
+          _playAudio();
+        }
+      }
+    } catch (e) {
+      debugPrint('Audio translation error: $e');
+      if (mounted) {
+        setState(() {
+          _sourceText = 'Translation error';
+          _outputText =
+              'Connection error: $e. Ensure FastAPI server is running at http://127.0.0.1:8000';
+          _isTmMatch = false;
+          _isLoading = false;
+          _view = AppView.result;
+        });
+      }
+    }
+  }
+
+  Future<void> _executeTextTranslation({
+    required String text,
+    required AppLanguage source,
+    required AppLanguage target,
+  }) async {
+    if (text.trim().isEmpty) return;
+
+    setState(() {
+      _language = source;
+      _targetLanguage = target;
       _isLoading = true;
       _view = AppView.result;
     });
 
     try {
-      TranslationResult result;
-      if (_recordedFilePath != null && _recordedFilePath!.isNotEmpty) {
-        result = await widget.api.translateAudio(
-          filePath: _recordedFilePath!,
-          source: source.backendKey,
-          target: target.backendKey,
-        );
-      } else {
-        // Fallback or demo phrase
-        final input = kDefaultPhrases[source.code] ?? 'Where is the nearest clinic?';
-        result = await widget.api.translateText(
-          text: input,
-          source: source.backendKey,
-          target: target.backendKey,
-        );
-      }
+      final result = await widget.api.translateText(
+        text: text.trim(),
+        source: source.backendKey,
+        target: target.backendKey,
+      );
 
       if (mounted) {
         setState(() {
-          _sourceText = result.sourceText.isNotEmpty
-              ? result.sourceText
-              : (kDefaultPhrases[source.code] ?? '');
-          _outputText = result.translatedText.isNotEmpty
-              ? result.translatedText
-              : (kDefaultPhrases[target.code] ?? '');
+          _sourceText = result.sourceText;
+          _outputText = result.translatedText;
           _isTmMatch = result.isTmMatch;
           _isLoading = false;
         });
@@ -312,40 +973,47 @@ class _ConversationPageState extends State<ConversationPage>
         }
       }
     } catch (e) {
-      debugPrint('Translation error (using local phrasebook fallback): $e');
+      debugPrint('Text translation error: $e');
       if (mounted) {
         setState(() {
-          _sourceText = kDefaultPhrases[source.code] ?? 'How can I get to Bole?';
-          _outputText = kDefaultPhrases[target.code] ?? 'ወደ ቦሌ እንዴት መሄድ እችላለሁ?';
-          _isTmMatch = true;
+          _sourceText = text;
+          _outputText = 'Error: $e. Ensure FastAPI server is running.';
+          _isTmMatch = false;
           _isLoading = false;
         });
-        if (_autoPlay) {
-          _playAudio();
-        }
       }
     }
   }
 
   Future<void> _playAudio() async {
     final text = _outputText.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty ||
+        text.startsWith('ድምፅ አልተሰማም') ||
+        text.startsWith('ድምፅ አልተቀረጸም') ||
+        text.startsWith('Connection error') ||
+        text.startsWith('Error:')) {
+      return;
+    }
 
     setState(() {
       _playing = true;
     });
 
     _playbackTimer?.cancel();
-    _playbackTimer = Timer(const Duration(milliseconds: 3800), () {
+    _playbackTimer = Timer(const Duration(milliseconds: 4000), () {
       if (mounted) setState(() => _playing = false);
     });
 
     try {
-      final uri = widget.api.getTtsUri(text, _targetLanguage.backendKey);
+      final bytes = await widget.api.synthesizeSpeech(
+        text,
+        _targetLanguage.backendKey,
+      );
       await _audioPlayer.stop();
-      await _audioPlayer.play(UrlSource(uri.toString()));
+      await _audioPlayer.play(BytesSource(bytes));
     } catch (e) {
       debugPrint('TTS play error: $e');
+      if (mounted) setState(() => _playing = false);
     }
   }
 
@@ -357,6 +1025,209 @@ class _ConversationPageState extends State<ConversationPage>
       _playing = false;
       _isLoading = false;
     });
+  }
+
+  void _showTextInputDialog() {
+    final textController = TextEditingController();
+    AppLanguage selectedSrc = _language;
+    AppLanguage selectedTgt = _targetLanguage;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: LisanTheme.well,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'TEXT TRANSLATION',
+                        style: TextStyle(
+                          color: LisanTheme.acid,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Color(0xFFC3C8BB)),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<AppLanguage>(
+                          initialValue: selectedSrc,
+                          isExpanded: true,
+                          dropdownColor: LisanTheme.wellDeep,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'From',
+                            labelStyle: const TextStyle(
+                              color: LisanTheme.muted,
+                              fontSize: 11,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            filled: true,
+                            fillColor: const Color(0xFF1E221E),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          items: kLanguages.map((l) {
+                            return DropdownMenuItem(
+                              value: l,
+                              child: Text(
+                                '${l.native} (${l.code})',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            if (val != null) {
+                              setSheetState(() => selectedSrc = val);
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      const Icon(
+                        Icons.arrow_forward,
+                        color: LisanTheme.muted,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: DropdownButtonFormField<AppLanguage>(
+                          initialValue: selectedTgt,
+                          isExpanded: true,
+                          dropdownColor: LisanTheme.wellDeep,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'To',
+                            labelStyle: const TextStyle(
+                              color: LisanTheme.muted,
+                              fontSize: 11,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            filled: true,
+                            fillColor: const Color(0xFF1E221E),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          items: kLanguages.map((l) {
+                            return DropdownMenuItem(
+                              value: l,
+                              child: Text(
+                                '${l.native} (${l.code})',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            if (val != null) {
+                              setSheetState(() => selectedTgt = val);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: textController,
+                    autofocus: true,
+                    maxLines: 3,
+                    style: const TextStyle(color: Colors.white, fontSize: 15),
+                    decoration: InputDecoration(
+                      hintText: 'Enter text to translate...',
+                      hintStyle: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.35),
+                      ),
+                      filled: true,
+                      fillColor: const Color(0xFF181B18),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: Color(0xFF353932)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: LisanTheme.orange),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: LisanTheme.orange,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      onPressed: () {
+                        final input = textController.text.trim();
+                        if (input.isNotEmpty) {
+                          Navigator.pop(ctx);
+                          _executeTextTranslation(
+                            text: input,
+                            source: selectedSrc,
+                            target: selectedTgt,
+                          );
+                        }
+                      },
+                      child: const Text(
+                        'TRANSLATE',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -407,7 +1278,9 @@ class _ConversationPageState extends State<ConversationPage>
                         child: Text(
                           'LISAN  /  MODEL 01',
                           style: TextStyle(
-                            color: const Color(0xFF363731).withValues(alpha: 0.28),
+                            color: const Color(
+                              0xFF363731,
+                            ).withValues(alpha: 0.28),
                             fontSize: 7.5,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 2.2,
@@ -447,9 +1320,7 @@ class _ConversationPageState extends State<ConversationPage>
       height: 68,
       padding: const EdgeInsets.symmetric(horizontal: 20),
       decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Color(0x3831322D)),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0x3831322D))),
         boxShadow: [
           BoxShadow(
             color: Color(0x73FFFFFF),
@@ -488,10 +1359,7 @@ class _ConversationPageState extends State<ConversationPage>
                         offset: Offset(0, 4),
                         blurRadius: 8,
                       ),
-                      BoxShadow(
-                        color: Color(0xFFFFF9E8),
-                        offset: Offset(0, 2),
-                      ),
+                      BoxShadow(color: Color(0xFFFFF9E8), offset: Offset(0, 2)),
                     ],
                   ),
                   child: const Center(
@@ -516,55 +1384,103 @@ class _ConversationPageState extends State<ConversationPage>
             ),
           ),
 
-          // Advanced settings button
-          GestureDetector(
-            onTap: () {
-              setState(() {
-                _view = AppView.settings;
-              });
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(7),
-                border: Border.all(color: const Color(0xFF9C9587)),
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFFEEE7D8), Color(0xFFC9C1B1)],
-                ),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0xFF9F988A),
-                    offset: Offset(0, 2),
+          Row(
+            children: [
+              // Type Text button
+              GestureDetector(
+                onTap: _showTextInputDialog,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
                   ),
-                  BoxShadow(
-                    color: Color(0x24353028),
-                    offset: Offset(0, 4),
-                    blurRadius: 6,
-                  ),
-                ],
-              ),
-              child: const Row(
-                children: [
-                  Text(
-                    'Advanced settings',
-                    style: TextStyle(
-                      color: Color(0xFF474942),
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.3,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(7),
+                    border: Border.all(color: const Color(0xFF9C9587)),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xFFEEE7D8), Color(0xFFC9C1B1)],
                     ),
+                    boxShadow: const [
+                      BoxShadow(color: Color(0xFF9F988A), offset: Offset(0, 2)),
+                      BoxShadow(
+                        color: Color(0x24353028),
+                        offset: Offset(0, 4),
+                        blurRadius: 6,
+                      ),
+                    ],
                   ),
-                  SizedBox(width: 4),
-                  LisanIcon(
-                    LisanIconType.arrow,
-                    size: 13,
-                    color: Color(0xFF474942),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.edit_note, size: 14, color: Color(0xFF474942)),
+                      SizedBox(width: 4),
+                      Text(
+                        'Type text',
+                        style: TextStyle(
+                          color: Color(0xFF474942),
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
+              const SizedBox(width: 8),
+
+              // Advanced settings button
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _view = AppView.settings;
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(7),
+                    border: Border.all(color: const Color(0xFF9C9587)),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xFFEEE7D8), Color(0xFFC9C1B1)],
+                    ),
+                    boxShadow: const [
+                      BoxShadow(color: Color(0xFF9F988A), offset: Offset(0, 2)),
+                      BoxShadow(
+                        color: Color(0x24353028),
+                        offset: Offset(0, 4),
+                        blurRadius: 6,
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    children: [
+                      Text(
+                        'Settings',
+                        style: TextStyle(
+                          color: Color(0xFF474942),
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                      SizedBox(width: 4),
+                      LisanIcon(
+                        LisanIconType.arrow,
+                        size: 12,
+                        color: Color(0xFF474942),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -579,6 +1495,8 @@ class _ConversationPageState extends State<ConversationPage>
       case AppView.ready:
       case AppView.speaking:
         return _buildVoiceView();
+      case AppView.loading:
+        return _buildLoadingView();
       case AppView.language:
         return _buildLanguageView();
       case AppView.result:
@@ -602,11 +1520,7 @@ class _ConversationPageState extends State<ConversationPage>
           // Eyebrow
           Row(
             children: [
-              Container(
-                width: 19,
-                height: 2,
-                color: LisanTheme.orange,
-              ),
+              Container(width: 19, height: 2, color: LisanTheme.orange),
               const SizedBox(width: 9),
               Text(
                 isSpeaking ? 'LISTENING NOW' : 'VOICE TRANSLATOR',
@@ -627,7 +1541,7 @@ class _ConversationPageState extends State<ConversationPage>
               'I’m listening…',
               style: TextStyle(
                 fontFamily: 'serif',
-                fontSize: 50,
+                fontSize: 44,
                 color: LisanTheme.ink,
                 height: 0.95,
                 letterSpacing: -1.5,
@@ -638,7 +1552,7 @@ class _ConversationPageState extends State<ConversationPage>
               const TextSpan(
                 style: TextStyle(
                   fontFamily: 'serif',
-                  fontSize: 54,
+                  fontSize: 46,
                   color: LisanTheme.ink,
                   height: 0.92,
                   letterSpacing: -1.8,
@@ -655,7 +1569,7 @@ class _ConversationPageState extends State<ConversationPage>
                 ],
               ),
             ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
 
           // Hero Copy
           Text(
@@ -664,8 +1578,8 @@ class _ConversationPageState extends State<ConversationPage>
                 : 'Instant translation across the languages of Ethiopia and the Horn.',
             style: const TextStyle(
               color: LisanTheme.muted,
-              fontSize: 12.5,
-              height: 1.5,
+              fontSize: 12,
+              height: 1.4,
             ),
           ),
 
@@ -679,10 +1593,7 @@ class _ConversationPageState extends State<ConversationPage>
                 borderRadius: BorderRadius.circular(7),
                 border: Border.all(color: const Color(0xFF1B1D19)),
                 boxShadow: const [
-                  BoxShadow(
-                    color: Color(0xFFF9F2E3),
-                    offset: Offset(0, 1),
-                  ),
+                  BoxShadow(color: Color(0xFFF9F2E3), offset: Offset(0, 1)),
                 ],
               ),
               child: Row(
@@ -695,10 +1606,7 @@ class _ConversationPageState extends State<ConversationPage>
                       shape: BoxShape.circle,
                       color: _firstLanguage.tone,
                       boxShadow: [
-                        BoxShadow(
-                          color: _firstLanguage.tone,
-                          blurRadius: 4,
-                        ),
+                        BoxShadow(color: _firstLanguage.tone, blurRadius: 4),
                       ],
                     ),
                   ),
@@ -735,10 +1643,7 @@ class _ConversationPageState extends State<ConversationPage>
                       shape: BoxShape.circle,
                       color: _secondLanguage.tone,
                       boxShadow: [
-                        BoxShadow(
-                          color: _secondLanguage.tone,
-                          blurRadius: 4,
-                        ),
+                        BoxShadow(color: _secondLanguage.tone, blurRadius: 4),
                       ],
                     ),
                   ),
@@ -753,13 +1658,323 @@ class _ConversationPageState extends State<ConversationPage>
           Center(
             child: _OrbStage(
               isSpeaking: isSpeaking,
-              onBeginSpeaking: _beginSpeaking,
-              onFinishSpeaking: _finishSpeaking,
+              onDialDown: _onDialDown,
+              onDialUp: _onDialUp,
             ),
           ),
-
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
+          Center(
+            child: Text(
+              isSpeaking
+                  ? 'RECORDING · TAP DIAL TO TRANSLATE'
+                  : 'TAP OR HOLD TO SPEAK',
+              style: TextStyle(
+                color: isSpeaking ? LisanTheme.orange : const Color(0xFF8A887E),
+                fontSize: 9.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.5,
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
         ],
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Post-Recording "Translate To" Aesthetic Prompt (Referenced from Settings Section 01)
+  // -------------------------------------------------------------------------
+  void _showTranslateToPrompt() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: const Color(0xB80E100D),
+      builder: (sheetCtx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: LisanTheme.paperLight,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+            border: Border(
+              top: BorderSide(color: Color(0xFF8F887B), width: 2),
+              left: BorderSide(color: Color(0xFF8F887B), width: 2),
+              right: BorderSide(color: Color(0xFF8F887B), width: 2),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Color(0x66000000),
+                offset: Offset(0, -6),
+                blurRadius: 20,
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 26),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Micro-kicker header
+              Row(
+                children: [
+                  Container(width: 19, height: 2.5, color: LisanTheme.orange),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'VOICE CAPTURED · SELECT TARGET',
+                    style: TextStyle(
+                      color: Color(0xFF62645C),
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      if (mounted) setState(() => _view = AppView.ready);
+                    },
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFFDDD5C6),
+                        border: Border.all(color: const Color(0xFF9E9789)),
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.close,
+                          size: 14,
+                          color: Color(0xFF4A4B44),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Title
+              const Text(
+                'Translate into',
+                style: TextStyle(
+                  fontFamily: 'serif',
+                  fontSize: 30,
+                  color: LisanTheme.ink,
+                  height: 1.0,
+                  letterSpacing: -0.8,
+                ),
+              ),
+              const SizedBox(height: 2),
+              const Text(
+                'መተርጎሚያ ቋንቋ ይምረጡ',
+                style: TextStyle(
+                  color: LisanTheme.orange,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Aesthetic Select Box (matching Settings Section 01: TRANSLATION)
+              _buildSettingsStyleTranslateBox(sheetCtx),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSettingsStyleTranslateBox(BuildContext sheetCtx) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFC8C0B1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF8F887B)),
+        boxShadow: const [
+          BoxShadow(color: Color(0xFFFFF8E9), offset: Offset(0, 1)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'OUTPUT LANGUAGE',
+                style: TextStyle(
+                  color: Color(0xFF30322D),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.0,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: LisanTheme.acid.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: const Color(0xFF6B7A24)),
+                ),
+                child: const Text(
+                  'INSTANT SYNTHESIS',
+                  style: TextStyle(
+                    color: Color(0xFF344012),
+                    fontSize: 7.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          const Text(
+            'Tap a language to translate and synthesize voice',
+            style: TextStyle(color: Color(0xFF74746C), fontSize: 8.8),
+          ),
+          const SizedBox(height: 12),
+
+          // Primary Row: Amharic & English
+          Row(
+            children: [
+              Expanded(
+                child: _buildSelectBoxLanguageButton(sheetCtx, kLanguages[0]),
+              ), // Amharic
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildSelectBoxLanguageButton(sheetCtx, kLanguages[4]),
+              ), // English
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // Secondary Row: Afaan Oromoo & Tigrinya
+          Row(
+            children: [
+              Expanded(
+                child: _buildSelectBoxLanguageButton(sheetCtx, kLanguages[1]),
+              ), // Oromo
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildSelectBoxLanguageButton(sheetCtx, kLanguages[2]),
+              ), // Tigrinya
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // Third Row: Somali
+          Row(
+            children: [
+              Expanded(
+                child: _buildSelectBoxLanguageButton(sheetCtx, kLanguages[3]),
+              ), // Somali
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSelectBoxLanguageButton(
+    BuildContext sheetCtx,
+    AppLanguage lang,
+  ) {
+    final isSelected = _targetLanguage.code == lang.code;
+    return GestureDetector(
+      onTap: () {
+        Navigator.of(sheetCtx).pop();
+        setState(() {
+          _targetLanguage = lang;
+          _view = AppView.loading;
+          _isLoading = true;
+        });
+        _executeTranslation(source: null, target: lang);
+      },
+      child: Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? LisanTheme.well : const Color(0xFFE8E1D3),
+          borderRadius: BorderRadius.circular(7),
+          border: Border.all(
+            color: isSelected
+                ? const Color(0xFF171916)
+                : const Color(0xFF8D8679),
+            width: 1.2,
+          ),
+          boxShadow: [
+            if (!isSelected)
+              const BoxShadow(color: Color(0xFF918A7D), offset: Offset(0, 2)),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isSelected
+                    ? lang.tone.withValues(alpha: 0.35)
+                    : lang.tone.withValues(alpha: 0.18),
+                border: Border.all(
+                  color: isSelected ? lang.tone : const Color(0xFF8B8478),
+                ),
+              ),
+              child: Center(
+                child: LanguageSymbolWidget(
+                  symbol: lang.symbol,
+                  size: 12,
+                  color: isSelected ? Colors.white : const Color(0xFF3E4039),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    lang.native,
+                    style: TextStyle(
+                      color: isSelected
+                          ? LisanTheme.acid
+                          : const Color(0xFF30322D),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    '${lang.name} (${lang.code})',
+                    style: TextStyle(
+                      color: isSelected
+                          ? const Color(0xFF9FA596)
+                          : const Color(0xFF74746C),
+                      fontSize: 8,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            if (isSelected) ...[
+              const SizedBox(width: 4),
+              const LisanIcon(
+                LisanIconType.check,
+                size: 13,
+                color: LisanTheme.acid,
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -784,7 +1999,11 @@ class _ConversationPageState extends State<ConversationPage>
                   children: [
                     Row(
                       children: [
-                        Container(width: 19, height: 2, color: LisanTheme.orange),
+                        Container(
+                          width: 19,
+                          height: 2,
+                          color: LisanTheme.orange,
+                        ),
                         const SizedBox(width: 9),
                         const Text(
                           'WE HEARD YOU',
@@ -812,19 +2031,13 @@ class _ConversationPageState extends State<ConversationPage>
                 ),
               ),
               const SizedBox(width: 12),
-              _buildIconButton(
-                icon: LisanIconType.close,
-                onTap: _reset,
-              ),
+              _buildIconButton(icon: LisanIconType.close, onTap: _reset),
             ],
           ),
           const SizedBox(height: 12),
           const Text(
             'Choose by color or symbol',
-            style: TextStyle(
-              color: LisanTheme.muted,
-              fontSize: 11,
-            ),
+            style: TextStyle(color: LisanTheme.muted, fontSize: 11),
           ),
           const SizedBox(height: 16),
 
@@ -897,13 +2110,12 @@ class _ConversationPageState extends State<ConversationPage>
                   height: 40,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.32)),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.32),
+                    ),
                     color: const Color(0x381C1D19),
                     boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x33FFFFFF),
-                        offset: Offset(0, 1),
-                      ),
+                      BoxShadow(color: Color(0x33FFFFFF), offset: Offset(0, 1)),
                     ],
                   ),
                   child: Center(
@@ -994,10 +2206,7 @@ class _ConversationPageState extends State<ConversationPage>
                 border: Border.all(color: Colors.white.withValues(alpha: 0.32)),
                 color: const Color(0x381C1D19),
                 boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x33FFFFFF),
-                    offset: Offset(0, 1),
-                  ),
+                  BoxShadow(color: Color(0x33FFFFFF), offset: Offset(0, 1)),
                 ],
               ),
               child: Center(
@@ -1043,11 +2252,130 @@ class _ConversationPageState extends State<ConversationPage>
   }
 
   // -------------------------------------------------------------------------
-  // 3. Hardware Translation Card Result View
+  // 2.5 Minimalist Aesthetic Loading Screen (Warm Light Theme)
+  // -------------------------------------------------------------------------
+  Widget _buildLoadingView() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 28, 22, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Eyebrow
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(width: 19, height: 2, color: LisanTheme.orange),
+                  const SizedBox(width: 9),
+                  const Text(
+                    'TRANSLATING NOW',
+                    style: TextStyle(
+                      color: Color(0xFF62645C),
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.8,
+                    ),
+                  ),
+                ],
+              ),
+              _buildIconButton(icon: LisanIconType.close, onTap: _reset),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Hero Display Title (Serif)
+          Text.rich(
+            TextSpan(
+              style: const TextStyle(
+                fontFamily: 'serif',
+                fontSize: 44,
+                color: LisanTheme.ink,
+                height: 0.95,
+                letterSpacing: -1.5,
+              ),
+              children: [
+                const TextSpan(text: 'Translating…\n'),
+                TextSpan(
+                  text: '${_targetLanguage.native} (${_targetLanguage.name})',
+                  style: TextStyle(
+                    color: _targetLanguage.tone,
+                    fontStyle: FontStyle.italic,
+                    fontSize: 26,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Subtitle
+          const Text(
+            'Synthesizing speech with natural inflection and clarity.',
+            style: TextStyle(
+              color: LisanTheme.muted,
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+
+          const Spacer(),
+
+          // Sculptural Minimalist Centerpiece
+          Center(child: LisanAestheticOrb(targetLanguage: _targetLanguage)),
+
+          const Spacer(),
+
+          // Cancel / Abort Button
+          GestureDetector(
+            onTap: _reset,
+            child: Container(
+              width: double.infinity,
+              height: 50,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(9),
+                border: Border.all(color: const Color(0xFF9E9687)),
+                gradient: const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFFEEE7D8), Color(0xFFC9C1B1)],
+                ),
+                boxShadow: const [
+                  BoxShadow(color: Color(0xFF9F988A), offset: Offset(0, 2)),
+                  BoxShadow(
+                    color: Color(0x24353028),
+                    offset: Offset(0, 4),
+                    blurRadius: 6,
+                  ),
+                ],
+              ),
+              child: const Center(
+                child: Text(
+                  'CANCEL',
+                  style: TextStyle(
+                    color: Color(0xFF474942),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.6,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 3. Aesthetic Light-Themed Translation Card Result View
   // -------------------------------------------------------------------------
   Widget _buildResultView() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(22, 16, 22, 20),
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(22, 16, 22, 28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1062,7 +2390,11 @@ class _ConversationPageState extends State<ConversationPage>
                   children: [
                     Row(
                       children: [
-                        Container(width: 19, height: 2, color: LisanTheme.orange),
+                        Container(
+                          width: 19,
+                          height: 2,
+                          color: LisanTheme.orange,
+                        ),
                         const SizedBox(width: 9),
                         const Text(
                           'TRANSLATION READY',
@@ -1090,292 +2422,294 @@ class _ConversationPageState extends State<ConversationPage>
                 ),
               ),
               const SizedBox(width: 12),
-              _buildIconButton(
-                icon: LisanIconType.close,
-                onTap: _reset,
-              ),
+              _buildIconButton(icon: LisanIconType.close, onTap: _reset),
             ],
           ),
           const SizedBox(height: 18),
 
-          // Main Hardware Screen Card
+          // Main Card - Light Theme Warm Paper Chassis
           Container(
+            width: double.infinity,
             decoration: BoxDecoration(
-              color: LisanTheme.well,
-              borderRadius: BorderRadius.circular(17),
-              border: Border.all(
-                color: const Color(0xFFAAA293),
-                width: 7,
-              ),
+              color: LisanTheme.paperLight,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFD4CDC0), width: 1.2),
               boxShadow: const [
                 BoxShadow(
-                  color: Color(0xFF666157),
-                  offset: Offset(0, 0),
-                  blurRadius: 1,
+                  color: Color(0x1A28251E),
+                  offset: Offset(0, 6),
+                  blurRadius: 16,
                 ),
                 BoxShadow(
-                  color: Color(0xFFFFF8E7),
-                  offset: Offset(0, 2),
-                ),
-                BoxShadow(
-                  color: Color(0x3D342E25),
-                  offset: Offset(0, 8),
-                  blurRadius: 15,
+                  color: Color(0xFFFFFDF8),
+                  offset: Offset(0, 1),
+                  blurRadius: 0,
                 ),
               ],
             ),
-            child: Stack(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Top-right micro-label
-                Positioned(
-                  top: 7,
-                  right: 10,
-                  child: Text(
-                    _isLoading ? 'PROCESSING AUDIO...' : 'TRANSLATION OUTPUT',
-                    style: TextStyle(
-                      color: LisanTheme.acid.withValues(alpha: 0.45),
-                      fontSize: 5.5,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.4,
-                    ),
-                  ),
-                ),
-
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Top Section: Source
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                // Top Section: Source Speech
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          Row(
-                            children: [
-                              _buildMiniSwatch(_language),
-                              const SizedBox(width: 8),
-                              Text(
-                                _language.name.toUpperCase(),
-                                style: const TextStyle(
-                                  color: Color(0xFFAFB5A7),
-                                  fontSize: 8.5,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 1.0,
-                                ),
-                              ),
-                              const Spacer(),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 7,
-                                  vertical: 3,
-                                ),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(4),
-                                  border: Border.all(
-                                    color: LisanTheme.acid.withValues(alpha: 0.25),
-                                  ),
-                                  color: LisanTheme.acid.withValues(alpha: 0.08),
-                                ),
-                                child: const Text(
-                                  'DETECTED',
-                                  style: TextStyle(
-                                    color: LisanTheme.acid,
-                                    fontSize: 6.5,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
+                          _buildMiniSwatch(_language),
+                          const SizedBox(width: 10),
                           Text(
-                            _sourceText,
+                            '${_language.name.toUpperCase()} (${_language.native})',
                             style: const TextStyle(
-                              color: Color(0xFFC3C8BB),
-                              fontSize: 15,
-                              height: 1.5,
+                              color: Color(0xFF666A60),
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3.5,
+                            ),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(5),
+                              border: Border.all(
+                                color: const Color(0xFFBFB7A8),
+                              ),
+                              color: const Color(0xFFE4DECF),
+                            ),
+                            child: const Text(
+                              'ORIGINAL',
+                              style: TextStyle(
+                                color: Color(0xFF62665C),
+                                fontSize: 7.5,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.6,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                    ),
+                      const SizedBox(height: 14),
+                      Text(
+                        _sourceText.isEmpty
+                            ? 'No speech transcribed yet'
+                            : _sourceText,
+                        style: TextStyle(
+                          color: _sourceText.isEmpty
+                              ? const Color(0xFF8A887E)
+                              : LisanTheme.ink,
+                          fontSize: 16,
+                          height: 1.5,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
-                    // Divider with spark emblem
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            height: 1,
-                            color: const Color(0xFF464B43),
-                          ),
-                        ),
-                        Container(
-                          width: 27,
-                          height: 27,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(color: const Color(0xFF596052)),
-                            color: const Color(0xFF1A1D19),
-                          ),
-                          child: const Center(
-                            child: LisanIcon(
-                              LisanIconType.spark,
-                              size: 14,
-                              color: LisanTheme.acid,
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: Container(
-                            height: 1,
-                            color: const Color(0xFF464B43),
-                          ),
-                        ),
-                      ],
-                    ),
+                // Divider Line
+                Container(
+                  width: double.infinity,
+                  height: 1,
+                  color: const Color(0xFFDCD5C6),
+                ),
 
-                    // Bottom Section: Output
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                // Bottom Section: Output Translation
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          Row(
-                            children: [
-                              _buildMiniSwatch(_targetLanguage),
-                              const SizedBox(width: 8),
-                              Text(
-                                _targetLanguage.name.toUpperCase(),
-                                style: const TextStyle(
-                                  color: Color(0xFFAFB5A7),
-                                  fontSize: 8.5,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 1.0,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
+                          _buildMiniSwatch(_targetLanguage),
+                          const SizedBox(width: 10),
                           Text(
-                            _outputText,
-                            style: const TextStyle(
-                              fontFamily: 'serif',
-                              color: Color(0xFFF2F4E9),
-                              fontSize: 27,
-                              height: 1.25,
-                              letterSpacing: -0.5,
+                            '${_targetLanguage.name.toUpperCase()} (${_targetLanguage.native})',
+                            style: TextStyle(
+                              color: _targetLanguage.tone,
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.8,
                             ),
                           ),
-                          const SizedBox(height: 18),
-
-                          // Audio Playback Row
-                          Row(
-                            children: [
-                              GestureDetector(
-                                onTap: () {
-                                  if (_playing) {
-                                    _audioPlayer.stop();
-                                    _playbackTimer?.cancel();
-                                    setState(() => _playing = false);
-                                  } else {
-                                    _playAudio();
-                                  }
-                                },
-                                child: Container(
-                                  width: 38,
-                                  height: 38,
-                                  decoration: const BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: LisanTheme.acid,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Color(0xFF718036),
-                                        offset: Offset(0, 3),
-                                      ),
-                                      BoxShadow(
-                                        color: Color(0xFF10120F),
-                                        offset: Offset(0, 5),
-                                        blurRadius: 7,
-                                      ),
-                                    ],
-                                  ),
-                                  child: Center(
-                                    child: LisanIcon(
-                                      LisanIconType.volume,
-                                      size: 19,
-                                      color: const Color(0xFF21241F),
+                          const Spacer(),
+                          // Copy button
+                          GestureDetector(
+                            onTap: () {
+                              if (_outputText.isNotEmpty) {
+                                Clipboard.setData(
+                                  ClipboardData(text: _outputText),
+                                );
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: const Text(
+                                      'Translation copied to clipboard',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                    duration: const Duration(seconds: 2),
+                                    behavior: SnackBarBehavior.floating,
+                                    backgroundColor: const Color(0xFF2C2F29),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
                                     ),
                                   ),
+                                );
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3.5,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(5),
+                                border: Border.all(
+                                  color: const Color(0xFFC8C1B2),
                                 ),
+                                color: const Color(0xFFE8E2D4),
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: WaveformEqualizer(active: _playing),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.copy,
+                                    size: 11,
+                                    color: Color(0xFF5A5C54),
+                                  ),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'COPY',
+                                    style: TextStyle(
+                                      color: Color(0xFF5A5C54),
+                                      fontSize: 7.5,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.6,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 10),
-                              Text(
-                                _audioDurationText,
-                                style: const TextStyle(
-                                  color: Color(0xFF858C7F),
-                                  fontSize: 8.5,
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 14),
+                      Text(
+                        _outputText.isEmpty
+                            ? 'Tap mic or type text to translate'
+                            : _outputText,
+                        style: TextStyle(
+                          fontFamily: 'serif',
+                          color: _outputText.isEmpty
+                              ? const Color(0xFF8A887E)
+                              : LisanTheme.ink,
+                          fontSize: _outputText.isEmpty ? 18 : 28,
+                          height: 1.25,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+
+                      // Audio Playback Bar
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE4DDD0),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFCCC5B6)),
+                        ),
+                        child: Row(
+                          children: [
+                            GestureDetector(
+                              onTap: () {
+                                if (_playing) {
+                                  _audioPlayer.stop();
+                                  _playbackTimer?.cancel();
+                                  setState(() => _playing = false);
+                                } else {
+                                  _playAudio();
+                                }
+                              },
+                              child: Container(
+                                width: 38,
+                                height: 38,
+                                decoration: const BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: LisanTheme.orange,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Color(0x35000000),
+                                      offset: Offset(0, 3),
+                                      blurRadius: 6,
+                                    ),
+                                  ],
+                                ),
+                                child: Center(
+                                  child: Icon(
+                                    _playing
+                                        ? Icons.stop_rounded
+                                        : Icons.volume_up_rounded,
+                                    size: 20,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: WaveformEqualizer(
+                                active: _playing,
+                                color: _targetLanguage.tone,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              _audioDurationText,
+                              style: const TextStyle(
+                                color: Color(0xFF6B6E64),
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 24),
 
-          // Trust Badges
-          Row(
-            children: [
-              _buildTrustBadge(
-                icon: LisanIconType.brain,
-                label: _isTmMatch ? 'Verified Memory' : 'AI Dynamic',
-              ),
-              const SizedBox(width: 8),
-              _buildTrustBadge(
-                icon: LisanIconType.shield,
-                label: 'AI Guard',
-              ),
-            ],
-          ),
-
-          const Spacer(),
-
-          // Continuation Buttons
-          if (_conversationMode)
+          // Action Buttons
+          if (_conversationMode) ...[
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: const Color(0xFFC8C0B1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF807A6F)),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0xFFF8F0DF),
-                    offset: Offset(0, 1),
-                  ),
-                ],
+                color: const Color(0xFFE4DDD0),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFCCC5B6)),
               ),
               child: Row(
                 children: [
                   Container(
-                    width: 7,
-                    height: 7,
+                    width: 9,
+                    height: 9,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: _targetLanguage.tone,
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 10),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1383,15 +2717,15 @@ class _ConversationPageState extends State<ConversationPage>
                         _targetLanguage.name,
                         style: const TextStyle(
                           color: LisanTheme.ink,
-                          fontSize: 10.5,
+                          fontSize: 12,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       const Text(
-                        'Next speaker',
+                        'Next speaker reply',
                         style: TextStyle(
                           color: LisanTheme.muted,
-                          fontSize: 7.5,
+                          fontSize: 8.5,
                         ),
                       ),
                     ],
@@ -1409,7 +2743,7 @@ class _ConversationPageState extends State<ConversationPage>
                         shape: BoxShape.circle,
                         border: Border.all(
                           color: const Color(0xFF30332D),
-                          width: 4,
+                          width: 3.5,
                         ),
                         gradient: const RadialGradient(
                           center: Alignment(-0.3, -0.4),
@@ -1422,13 +2756,7 @@ class _ConversationPageState extends State<ConversationPage>
                         ),
                         boxShadow: const [
                           BoxShadow(
-                            color: Color(0xFFECE5D5),
-                            offset: Offset(0, 0),
-                            blurRadius: 0,
-                            spreadRadius: 2,
-                          ),
-                          BoxShadow(
-                            color: Color(0x4D342C23),
+                            color: Color(0x35000000),
                             offset: Offset(0, 4),
                             blurRadius: 6,
                           ),
@@ -1437,20 +2765,20 @@ class _ConversationPageState extends State<ConversationPage>
                       child: const Center(
                         child: LisanIcon(
                           LisanIconType.mic,
-                          size: 23,
-                          color: Color(0xFFFFF8E9),
+                          size: 22,
+                          color: Colors.white,
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 10),
                   const SizedBox(
-                    width: 36,
+                    width: 44,
                     child: Text(
                       'HOLD TO REPLY',
                       style: TextStyle(
                         color: Color(0xFF62645C),
-                        fontSize: 7.5,
+                        fontSize: 8,
                         fontWeight: FontWeight.w700,
                         height: 1.3,
                       ),
@@ -1458,22 +2786,24 @@ class _ConversationPageState extends State<ConversationPage>
                   ),
                 ],
               ),
-            )
-          else
-            _buildOrangeTactileButton(
-              label: 'Speak again',
-              iconLeading: const LisanIcon(
-                LisanIconType.mic,
-                size: 19,
-                color: Colors.white,
-              ),
-              iconTrailing: const LisanIcon(
-                LisanIconType.arrow,
-                size: 18,
-                color: Colors.white,
-              ),
-              onTap: _reset,
             ),
+            const SizedBox(height: 12),
+          ],
+          _buildOrangeTactileButton(
+            label: 'Speak again',
+            iconLeading: const LisanIcon(
+              LisanIconType.mic,
+              size: 19,
+              color: Colors.white,
+            ),
+            iconTrailing: const LisanIcon(
+              LisanIconType.arrow,
+              size: 18,
+              color: Colors.white,
+            ),
+            onTap: _reset,
+          ),
+          const SizedBox(height: 12),
         ],
       ),
     );
@@ -1486,9 +2816,7 @@ class _ConversationPageState extends State<ConversationPage>
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: lang.tone,
-        border: Border.all(
-          color: Color.lerp(lang.tone, Colors.white, 0.45)!,
-        ),
+        border: Border.all(color: Color.lerp(lang.tone, Colors.white, 0.45)!),
       ),
       child: Center(
         child: LanguageSymbolWidget(
@@ -1496,41 +2824,6 @@ class _ConversationPageState extends State<ConversationPage>
           size: 13,
           color: Colors.white,
         ),
-      ),
-    );
-  }
-
-  Widget _buildTrustBadge({
-    required LisanIconType icon,
-    required String label,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.24),
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(color: const Color(0xFFAAA294)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x99FFFFFF),
-            offset: Offset(0, 1),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          LisanIcon(icon, size: 14, color: const Color(0xFF696B63)),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Color(0xFF696B63),
-              fontSize: 7.5,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -1554,7 +2847,11 @@ class _ConversationPageState extends State<ConversationPage>
                   children: [
                     Row(
                       children: [
-                        Container(width: 19, height: 2, color: LisanTheme.orange),
+                        Container(
+                          width: 19,
+                          height: 2,
+                          color: LisanTheme.orange,
+                        ),
                         const SizedBox(width: 9),
                         const Text(
                           'PERSONALIZE LISAN',
@@ -1582,11 +2879,78 @@ class _ConversationPageState extends State<ConversationPage>
                 ),
               ),
               const SizedBox(width: 12),
-              _buildIconButton(
-                icon: LisanIconType.close,
-                onTap: _reset,
-              ),
+              _buildIconButton(icon: LisanIconType.close, onTap: _reset),
             ],
+          ),
+          const SizedBox(height: 20),
+
+          // Section 00: Speaker Persona
+          _buildSettingsGroupHeader('SPEAKER PERSONA', '00'),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFC8C0B1),
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(color: const Color(0xFF8F887B)),
+              boxShadow: const [
+                BoxShadow(color: Color(0xFFFFF8E9), offset: Offset(0, 1)),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _isEnglishSpeaker
+                            ? 'English Speaker (YES)'
+                            : 'Ethiopian Only (ቀጥል)',
+                        style: const TextStyle(
+                          color: Color(0xFF30322D),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _isEnglishSpeaker
+                            ? 'Auto-routes: English ⇄ ${_targetLanguage.name}'
+                            : 'Intra-Ethiopian LID (0% English false override)',
+                        style: const TextStyle(
+                          color: Color(0xFF74746C),
+                          fontSize: 8.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => _showPersonaSetupDialog(canDismiss: true),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: LisanTheme.well,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFF1E211D)),
+                    ),
+                    child: const Text(
+                      'Change',
+                      style: TextStyle(
+                        color: LisanTheme.acid,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 20),
 
@@ -1599,10 +2963,7 @@ class _ConversationPageState extends State<ConversationPage>
               borderRadius: BorderRadius.circular(11),
               border: Border.all(color: const Color(0xFF8F887B)),
               boxShadow: const [
-                BoxShadow(
-                  color: Color(0xFFFFF8E9),
-                  offset: Offset(0, 1),
-                ),
+                BoxShadow(color: Color(0xFFFFF8E9), offset: Offset(0, 1)),
               ],
             ),
             child: Column(
@@ -1618,10 +2979,7 @@ class _ConversationPageState extends State<ConversationPage>
                 ),
                 const Text(
                   'Your default output language',
-                  style: TextStyle(
-                    color: Color(0xFF74746C),
-                    fontSize: 8.5,
-                  ),
+                  style: TextStyle(color: Color(0xFF74746C), fontSize: 8.5),
                 ),
                 const SizedBox(height: 12),
                 Row(
@@ -1696,10 +3054,7 @@ class _ConversationPageState extends State<ConversationPage>
               borderRadius: BorderRadius.circular(11),
               border: Border.all(color: const Color(0xFF8F887B)),
               boxShadow: const [
-                BoxShadow(
-                  color: Color(0xFFFFF8E9),
-                  offset: Offset(0, 1),
-                ),
+                BoxShadow(color: Color(0xFFFFF8E9), offset: Offset(0, 1)),
               ],
             ),
             child: Column(
@@ -1735,10 +3090,7 @@ class _ConversationPageState extends State<ConversationPage>
                   ),
                   subtitle: const Text(
                     'Hear either language and translate to the other',
-                    style: TextStyle(
-                      color: Color(0xFF74746C),
-                      fontSize: 8,
-                    ),
+                    style: TextStyle(color: Color(0xFF74746C), fontSize: 8),
                   ),
                   trailing: Switch(
                     value: _conversationMode,
@@ -1761,7 +3113,8 @@ class _ConversationPageState extends State<ConversationPage>
                         label: 'First language',
                         selected: _firstLanguage,
                         blocked: _secondLanguage,
-                        onSelect: (lang) => setState(() => _firstLanguage = lang),
+                        onSelect: (lang) =>
+                            setState(() => _firstLanguage = lang),
                       ),
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 6),
@@ -1795,7 +3148,8 @@ class _ConversationPageState extends State<ConversationPage>
                         label: 'Second language',
                         selected: _secondLanguage,
                         blocked: _firstLanguage,
-                        onSelect: (lang) => setState(() => _secondLanguage = lang),
+                        onSelect: (lang) =>
+                            setState(() => _secondLanguage = lang),
                       ),
                     ],
                   ),
@@ -1846,10 +3200,7 @@ class _ConversationPageState extends State<ConversationPage>
               borderRadius: BorderRadius.circular(11),
               border: Border.all(color: const Color(0xFF8F887B)),
               boxShadow: const [
-                BoxShadow(
-                  color: Color(0xFFFFF8E9),
-                  offset: Offset(0, 1),
-                ),
+                BoxShadow(color: Color(0xFFFFF8E9), offset: Offset(0, 1)),
               ],
             ),
             child: Column(
@@ -1889,10 +3240,7 @@ class _ConversationPageState extends State<ConversationPage>
               borderRadius: BorderRadius.circular(11),
               border: Border.all(color: const Color(0xFF8F887B)),
               boxShadow: const [
-                BoxShadow(
-                  color: Color(0xFFFFF8E9),
-                  offset: Offset(0, 1),
-                ),
+                BoxShadow(color: Color(0xFFFFF8E9), offset: Offset(0, 1)),
               ],
             ),
             child: Column(
@@ -1950,10 +3298,7 @@ class _ConversationPageState extends State<ConversationPage>
               Expanded(
                 child: Text(
                   'Your voice preferences stay private on this device.',
-                  style: TextStyle(
-                    color: Color(0xFF666860),
-                    fontSize: 7.5,
-                  ),
+                  style: TextStyle(color: Color(0xFF666860), fontSize: 7.5),
                 ),
               ),
             ],
@@ -2026,10 +3371,7 @@ class _ConversationPageState extends State<ConversationPage>
           ),
           subtitle: Text(
             description,
-            style: const TextStyle(
-              color: Color(0xFF74746C),
-              fontSize: 8,
-            ),
+            style: const TextStyle(color: Color(0xFF74746C), fontSize: 8),
           ),
           trailing: Switch(
             value: enabled,
@@ -2062,10 +3404,7 @@ class _ConversationPageState extends State<ConversationPage>
       children: [
         Text(
           label,
-          style: const TextStyle(
-            color: Color(0xFF64665F),
-            fontSize: 8.5,
-          ),
+          style: const TextStyle(color: Color(0xFF64665F), fontSize: 8.5),
         ),
         Row(
           children: [
@@ -2073,7 +3412,9 @@ class _ConversationPageState extends State<ConversationPage>
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: GestureDetector(
-                  onTap: lang.code == blocked.code ? null : () => onSelect(lang),
+                  onTap: lang.code == blocked.code
+                      ? null
+                      : () => onSelect(lang),
                   child: Opacity(
                     opacity: lang.code == blocked.code ? 0.28 : 1.0,
                     child: Container(
@@ -2123,6 +3464,7 @@ class _ConversationPageState extends State<ConversationPage>
     required VoidCallback onTap,
   }) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Container(
         width: 36,
@@ -2136,10 +3478,7 @@ class _ConversationPageState extends State<ConversationPage>
             colors: [Color(0xFFF0E9DB), Color(0xFFC6BEAE)],
           ),
           boxShadow: const [
-            BoxShadow(
-              color: Color(0xFF9E978A),
-              offset: Offset(0, 2),
-            ),
+            BoxShadow(color: Color(0xFF9E978A), offset: Offset(0, 2)),
             BoxShadow(
               color: Color(0x28312D26),
               offset: Offset(0, 4),
@@ -2175,10 +3514,7 @@ class _ConversationPageState extends State<ConversationPage>
             colors: [Color(0xFFF56E4B), Color(0xFFD4472B)],
           ),
           boxShadow: const [
-            BoxShadow(
-              color: Color(0xFF8F301E),
-              offset: Offset(0, 3),
-            ),
+            BoxShadow(color: Color(0xFF8F301E), offset: Offset(0, 3)),
             BoxShadow(
               color: Color(0x33432D23),
               offset: Offset(0, 6),
@@ -2228,10 +3564,7 @@ class _ConversationPageState extends State<ConversationPage>
           borderRadius: BorderRadius.circular(2),
           color: const Color(0xFF8F887B),
           boxShadow: const [
-            BoxShadow(
-              color: Color(0xFFEEE7D8),
-              offset: Offset(0, 1),
-            ),
+            BoxShadow(color: Color(0xFFEEE7D8), offset: Offset(0, 1)),
           ],
         ),
       ),
@@ -2245,13 +3578,13 @@ class _ConversationPageState extends State<ConversationPage>
 class _OrbStage extends StatefulWidget {
   const _OrbStage({
     required this.isSpeaking,
-    required this.onBeginSpeaking,
-    required this.onFinishSpeaking,
+    required this.onDialDown,
+    required this.onDialUp,
   });
 
   final bool isSpeaking;
-  final VoidCallback onBeginSpeaking;
-  final VoidCallback onFinishSpeaking;
+  final VoidCallback onDialDown;
+  final VoidCallback onDialUp;
 
   @override
   State<_OrbStage> createState() => _OrbStageState();
@@ -2345,7 +3678,9 @@ class _OrbStageState extends State<_OrbStage>
                         shape: BoxShape.circle,
                         border: Border.all(
                           color: widget.isSpeaking
-                              ? LisanTheme.orange.withValues(alpha: ringOpacity3)
+                              ? LisanTheme.orange.withValues(
+                                  alpha: ringOpacity3,
+                                )
                               : const Color(0x33262924),
                           width: widget.isSpeaking ? 2 : 1,
                         ),
@@ -2363,7 +3698,9 @@ class _OrbStageState extends State<_OrbStage>
                         shape: BoxShape.circle,
                         border: Border.all(
                           color: widget.isSpeaking
-                              ? LisanTheme.orange.withValues(alpha: ringOpacity2)
+                              ? LisanTheme.orange.withValues(
+                                  alpha: ringOpacity2,
+                                )
                               : const Color(0x33262924),
                           width: widget.isSpeaking ? 2 : 1,
                         ),
@@ -2381,7 +3718,9 @@ class _OrbStageState extends State<_OrbStage>
                         shape: BoxShape.circle,
                         border: Border.all(
                           color: widget.isSpeaking
-                              ? LisanTheme.orange.withValues(alpha: ringOpacity1)
+                              ? LisanTheme.orange.withValues(
+                                  alpha: ringOpacity1,
+                                )
                               : const Color(0x33262924),
                           width: widget.isSpeaking ? 2 : 1,
                         ),
@@ -2408,9 +3747,8 @@ class _OrbStageState extends State<_OrbStage>
           Listener(
             key: const ValueKey('mic_dial_button'),
             behavior: HitTestBehavior.opaque,
-            onPointerDown: (_) => widget.onBeginSpeaking(),
-            onPointerUp: (_) => widget.onFinishSpeaking(),
-            onPointerCancel: (_) => widget.onFinishSpeaking(),
+            onPointerDown: (_) => widget.onDialDown(),
+            onPointerUp: (_) => widget.onDialUp(),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 140),
               width: 126,
@@ -2433,18 +3771,9 @@ class _OrbStageState extends State<_OrbStage>
                   stops: [0.0, 0.42, 0.75, 1.0],
                 ),
                 boxShadow: [
-                  const BoxShadow(
-                    color: Color(0xFF151713),
-                    spreadRadius: 2,
-                  ),
-                  const BoxShadow(
-                    color: Color(0xFFA9A191),
-                    spreadRadius: 8,
-                  ),
-                  const BoxShadow(
-                    color: Color(0xFFF6EFDF),
-                    spreadRadius: 10,
-                  ),
+                  const BoxShadow(color: Color(0xFF151713), spreadRadius: 2),
+                  const BoxShadow(color: Color(0xFFA9A191), spreadRadius: 8),
+                  const BoxShadow(color: Color(0xFFF6EFDF), spreadRadius: 10),
                   BoxShadow(
                     color: const Color(0x56342C23),
                     offset: widget.isSpeaking
@@ -2481,10 +3810,7 @@ class _OrbStageState extends State<_OrbStage>
                         gradient: const LinearGradient(
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
-                          colors: [
-                            Color(0x56FFFFFF),
-                            Colors.transparent,
-                          ],
+                          colors: [Color(0x56FFFFFF), Colors.transparent],
                         ),
                       ),
                     ),
@@ -2531,8 +3857,23 @@ class _WaveformEqualizerState extends State<WaveformEqualizer>
   late final AnimationController _waveController;
 
   static const List<double> _baseHeights = [
-    0.24, 0.40, 0.62, 0.34, 0.76, 0.52, 0.88, 0.60,
-    0.38, 0.70, 0.46, 0.82, 0.56, 0.34, 0.64, 0.44, 0.28,
+    0.24,
+    0.40,
+    0.62,
+    0.34,
+    0.76,
+    0.52,
+    0.88,
+    0.60,
+    0.38,
+    0.70,
+    0.46,
+    0.82,
+    0.56,
+    0.34,
+    0.64,
+    0.44,
+    0.28,
   ];
 
   @override
@@ -2581,15 +3922,22 @@ class _WaveformEqualizerState extends State<WaveformEqualizer>
               double heightFactor = 0.35;
               if (widget.active) {
                 final phase = (i * 0.38);
-                final wave = math.sin(_waveController.value * math.pi * 2 + phase);
-                heightFactor = (base * (0.45 + wave.abs() * 0.55)).clamp(0.15, 1.0);
+                final wave = math.sin(
+                  _waveController.value * math.pi * 2 + phase,
+                );
+                heightFactor = (base * (0.45 + wave.abs() * 0.55)).clamp(
+                  0.15,
+                  1.0,
+                );
               }
               return Container(
                 width: 2.2,
                 height: 32 * heightFactor,
                 margin: const EdgeInsets.symmetric(horizontal: 1.5),
                 decoration: BoxDecoration(
-                  color: widget.color.withValues(alpha: widget.active ? 0.95 : 0.45),
+                  color: widget.color.withValues(
+                    alpha: widget.active ? 0.95 : 0.45,
+                  ),
                   borderRadius: BorderRadius.circular(1.1),
                 ),
               );
@@ -2598,5 +3946,298 @@ class _WaveformEqualizerState extends State<WaveformEqualizer>
         );
       },
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Clean, Minimal & Sculptural Acoustic Orb Visualizer (White/Light Theme)
+// ---------------------------------------------------------------------------
+class LisanAestheticOrb extends StatefulWidget {
+  const LisanAestheticOrb({super.key, required this.targetLanguage});
+
+  final AppLanguage targetLanguage;
+
+  @override
+  State<LisanAestheticOrb> createState() => _LisanAestheticOrbState();
+}
+
+class _LisanAestheticOrbState extends State<LisanAestheticOrb>
+    with TickerProviderStateMixin {
+  late final AnimationController _pulseController;
+  late final AnimationController _orbitController;
+  late final AnimationController _waveController;
+
+  @override
+  void initState() {
+    super.initState();
+    // Gentle breathing pulse (1.6s)
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    )..repeat(reverse: true);
+
+    // Smooth continuous orbital rotation (4.0s)
+    _orbitController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 4000),
+    )..repeat();
+
+    // Harmonic soundwave modulation (900ms)
+    _waveController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    _orbitController.dispose();
+    _waveController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        _pulseController,
+        _orbitController,
+        _waveController,
+      ]),
+      builder: (context, _) {
+        final pulse = _pulseController.value;
+        final orbit = _orbitController.value * 2 * math.pi;
+        final tone = widget.targetLanguage.tone;
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Centerpiece: Breathing Rings & Tactile Language Orb
+            SizedBox(
+              width: 250,
+              height: 250,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Outer Acoustic Wave Ring 3 (240px)
+                  Transform.scale(
+                    scale: 0.90 + pulse * 0.18,
+                    child: Container(
+                      width: 236,
+                      height: 236,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: tone.withValues(
+                            alpha: (0.16 * (1.0 - pulse * 0.4)).clamp(
+                              0.04,
+                              0.2,
+                            ),
+                          ),
+                          width: 1.2,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Outer Acoustic Wave Ring 2 (198px)
+                  Transform.scale(
+                    scale: 0.94 + pulse * 0.14,
+                    child: Container(
+                      width: 196,
+                      height: 196,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: tone.withValues(
+                            alpha: (0.24 * (1.0 - pulse * 0.3)).clamp(
+                              0.06,
+                              0.28,
+                            ),
+                          ),
+                          width: 1.2,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Outer Acoustic Wave Ring 1 (156px)
+                  Transform.scale(
+                    scale: 0.97 + pulse * 0.08,
+                    child: Container(
+                      width: 156,
+                      height: 156,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: tone.withValues(
+                            alpha: (0.35 * (1.0 - pulse * 0.25)).clamp(
+                              0.1,
+                              0.4,
+                            ),
+                          ),
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Rotating Orbital Satellite Ring
+                  Transform.rotate(
+                    angle: orbit,
+                    child: CustomPaint(
+                      size: const Size(140, 140),
+                      painter: OrbitalShimmerPainter(tone: tone),
+                    ),
+                  ),
+
+                  // Tactile Sculptural Center Orb (diameter: 104px)
+                  Container(
+                    width: 104,
+                    height: 104,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: const Color(0xFF30332D),
+                        width: 5,
+                      ),
+                      gradient: RadialGradient(
+                        center: const Alignment(-0.35, -0.4),
+                        radius: 0.85,
+                        colors: [
+                          Color.lerp(tone, Colors.white, 0.42)!,
+                          tone,
+                          Color.lerp(tone, const Color(0xFF1E211A), 0.35)!,
+                        ],
+                        stops: const [0.0, 0.55, 1.0],
+                      ),
+                      boxShadow: [
+                        // Warm chassis recess bevel
+                        const BoxShadow(
+                          color: Color(0xFFECE5D5),
+                          offset: Offset(0, 0),
+                          spreadRadius: 3,
+                        ),
+                        // Soft tone glow
+                        BoxShadow(
+                          color: tone.withValues(alpha: 0.38),
+                          offset: const Offset(0, 8),
+                          blurRadius: 22,
+                          spreadRadius: 2,
+                        ),
+                        // Ground drop shadow
+                        const BoxShadow(
+                          color: Color(0x38342C23),
+                          offset: Offset(0, 8),
+                          blurRadius: 10,
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: LanguageSymbolWidget(
+                        symbol: widget.targetLanguage.symbol,
+                        size: 42,
+                        color: const Color(0xFFFFF8E9),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Delicate Minimal Harmonic Waveform
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: List.generate(9, (i) {
+                const baseFactors = [
+                  0.35,
+                  0.6,
+                  0.9,
+                  0.7,
+                  1.0,
+                  0.7,
+                  0.9,
+                  0.6,
+                  0.35,
+                ];
+                final base = baseFactors[i];
+                final wave = math.sin(
+                  _waveController.value * math.pi + (i * 0.45),
+                );
+                final h = (18 * (base * (0.35 + wave.abs() * 0.65))).clamp(
+                  4.0,
+                  22.0,
+                );
+
+                return Container(
+                  width: 3.2,
+                  height: h,
+                  margin: const EdgeInsets.symmetric(horizontal: 2.5),
+                  decoration: BoxDecoration(
+                    color: tone.withValues(alpha: 0.8),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                );
+              }),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Clean Minimalist Status Caption
+            Text(
+              'Translating to ${widget.targetLanguage.name}…',
+              style: const TextStyle(
+                color: Color(0xFF6B6E64),
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Subtle Orbital Shimmer Painter
+// ---------------------------------------------------------------------------
+class OrbitalShimmerPainter extends CustomPainter {
+  OrbitalShimmerPainter({required this.tone});
+  final Color tone;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+
+    // Faint guide orbit
+    final orbitPaint = Paint()
+      ..color = tone.withValues(alpha: 0.15)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+    canvas.drawCircle(center, radius, orbitPaint);
+
+    // Glowing satellite bead
+    final beadCenter = Offset(center.dx + radius, center.dy);
+    final glowPaint = Paint()
+      ..color = tone.withValues(alpha: 0.4)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+    canvas.drawCircle(beadCenter, 6, glowPaint);
+
+    final beadPaint = Paint()
+      ..color = tone
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(beadCenter, 3.5, beadPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant OrbitalShimmerPainter oldDelegate) {
+    return oldDelegate.tone != tone;
   }
 }

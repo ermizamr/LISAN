@@ -55,7 +55,18 @@ class TranslationResponse(BaseModel):
     warning: str | None = None
 
 
-def _validate_language_pair(src: str, tgt: str) -> None:
+def _validate_language_pair(src: str, tgt: str, allow_auto_src: bool = False) -> None:
+    if allow_auto_src and src in ("auto", "detect"):
+        if tgt not in LANGUAGES:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Unsupported target language code",
+                    "supported": sorted(LANGUAGES),
+                },
+            )
+        return
+
     if src not in LANGUAGES or tgt not in LANGUAGES:
         raise HTTPException(
             status_code=400,
@@ -153,12 +164,13 @@ async def translate_text(request: TextTranslationRequest) -> TranslationResponse
 @app.post("/translate/audio", response_model=TranslationResponse)
 async def translate_audio(
     file: UploadFile = File(...),
-    src: str = Query(...),
+    src: str = Query(default="auto"),
     tgt: str = Query(...),
     session_id: str | None = Query(default=None),
     formality: str = Query(default="auto"),
+    speaker_mode: str = Query(default="auto"),
 ) -> TranslationResponse:
-    _validate_language_pair(src, tgt)
+    _validate_language_pair(src, tgt, allow_auto_src=True)
     if file.content_type and file.content_type not in {
         "application/octet-stream",
         "audio/wav",
@@ -183,6 +195,7 @@ async def translate_audio(
             speak_result=False,
             session_id=session_id,
             formality=formality,
+            speaker_mode=speaker_mode,
         )
         dt = round(time.perf_counter() - started, 3)
         effective_src = result.get("src_lang", src)
@@ -204,7 +217,32 @@ async def translate_audio(
         )
     finally:
         await file.close()
-        if temporary_path:
+        if temporary_path and os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+
+@app.post("/detect/audio")
+async def detect_audio_language_endpoint(
+    file: UploadFile = File(...),
+) -> dict[str, str]:
+    """Identify the spoken language from an audio recording."""
+    suffix = Path(file.filename or "audio.wav").suffix or ".wav"
+    temporary_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temporary_file:
+            temporary_path = temporary_file.name
+            while chunk := await file.read(1024 * 1024):
+                temporary_file.write(chunk)
+        detected = get_pipeline().detect_spoken_language(temporary_path)
+        lang_info = LANGUAGES.get(detected, {"name": detected, "native": detected})
+        return {
+            "language_code": detected,
+            "name": lang_info["name"],
+            "native": lang_info["native"],
+        }
+    finally:
+        await file.close()
+        if temporary_path and os.path.exists(temporary_path):
             os.unlink(temporary_path)
 
 

@@ -30,6 +30,42 @@ console = Console()
 OUTPUT_DIR = Path(__file__).parent.parent / "onnx_models"
 
 
+def _cached_snapshot(repo_id: str) -> tuple[str, bool]:
+    """Return a local Hugging Face snapshot when one is available."""
+    import os
+
+    repo_dir = Path(os.path.expanduser("~")) / ".cache" / "huggingface" / "hub" / f"models--{repo_id.replace('/', '--')}" / "snapshots"
+    snapshots = sorted(repo_dir.glob("*"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for snapshot in snapshots:
+        if snapshot.is_dir() and (snapshot / "config.json").exists():
+            return str(snapshot), True
+    return repo_id, False
+
+
+def _ethio_ctc_onnx_config(model_id: str):
+    """Build the custom Optimum schema required by Wav2Vec2Bert CTC models."""
+    from transformers import AutoConfig
+    from optimum.exporters.onnx import OnnxConfig
+    from optimum.utils.normalized_config import NormalizedConfig
+
+    class EthioCTCOnnxConfig(OnnxConfig):
+        NORMALIZED_CONFIG_CLASS = NormalizedConfig
+
+        @property
+        def inputs(self):
+            return {"input_features": {0: "batch_size", 1: "audio_sequence_length", 2: "feature_size"}}
+
+        def generate_dummy_inputs(self, framework="pt", **_kwargs):
+            if framework != "pt":
+                raise ValueError("Ethio-ASR export supports the PyTorch source framework only")
+            import torch
+
+            return {"input_features": torch.zeros((1, 100, 160), dtype=torch.float32)}
+
+    config = AutoConfig.from_pretrained(model_id, local_files_only=True)
+    return EthioCTCOnnxConfig(config, task="automatic-speech-recognition")
+
+
 def export_nllb():
     """Export NLLB-200-distilled-600M to ONNX INT8."""
     from optimum.onnxruntime import ORTModelForSeq2SeqLM
@@ -43,12 +79,12 @@ def export_nllb():
     console.print(Panel("[cyan]Exporting NLLB-200 → ONNX float32...[/cyan]"))
     t0 = time.time()
 
-    model_id = "facebook/nllb-200-distilled-600M"
+    model_id, local_files_only = _cached_snapshot("facebook/nllb-200-distilled-600M")
 
     # Export to ONNX (float32 first)
     console.print("  Step 1/2: Export to ONNX...")
-    model = ORTModelForSeq2SeqLM.from_pretrained(model_id, export=True)
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    model = ORTModelForSeq2SeqLM.from_pretrained(model_id, export=True, local_files_only=local_files_only)
+    tokenizer = AutoTokenizer.from_pretrained(model_id, local_files_only=local_files_only)
     model.save_pretrained(str(out))
     tokenizer.save_pretrained(str(out))
 
@@ -57,7 +93,7 @@ def export_nllb():
     t1 = time.time()
 
     # Dynamic INT8 quantization (works on CPU, good for transformer encoders)
-    qconfig = AutoQuantizationConfig.avx512_vnni(is_static=False, per_channel=False)
+    qconfig = AutoQuantizationConfig.arm64(is_static=False, per_channel=False)
     
     for onnx_file in out.glob("*.onnx"):
         quantizer = ORTQuantizer.from_pretrained(str(out), file_name=onnx_file.name)
@@ -74,7 +110,7 @@ def export_nllb():
 
 def export_ethio_stt():
     """Export EthioMultilingualSTT to ONNX INT8."""
-    from optimum.onnxruntime import ORTModelForCTC
+    from optimum.exporters.onnx import main_export
     from transformers import AutoProcessor
     from optimum.onnxruntime.configuration import AutoQuantizationConfig
     from optimum.onnxruntime import ORTQuantizer
@@ -85,20 +121,26 @@ def export_ethio_stt():
     console.print(Panel("[cyan]Exporting EthioMultilingualSTT → ONNX float32...[/cyan]"))
     t0 = time.time()
 
-    model_id = "badrex/Ethio-ASR-multilingual-600M"
+    model_id, local_files_only = _cached_snapshot("badrex/Ethio-ASR-multilingual-600M")
 
     # Export to ONNX
     console.print("  Step 1/2: Export to ONNX...")
-    model = ORTModelForCTC.from_pretrained(model_id, export=True)
-    processor = AutoProcessor.from_pretrained(model_id)
-    model.save_pretrained(str(out))
+    custom_config = _ethio_ctc_onnx_config(model_id)
+    main_export(
+        model_id,
+        output=out,
+        task="automatic-speech-recognition",
+        local_files_only=local_files_only,
+        custom_onnx_configs={"model": custom_config},
+    )
+    processor = AutoProcessor.from_pretrained(model_id, local_files_only=local_files_only)
     processor.save_pretrained(str(out))
 
     console.print(f"  Exported in {time.time()-t0:.0f}s")
     console.print("  Step 2/2: Quantizing to INT8...")
     t1 = time.time()
 
-    qconfig = AutoQuantizationConfig.avx512_vnni(is_static=False, per_channel=False)
+    qconfig = AutoQuantizationConfig.arm64(is_static=False, per_channel=False)
     for onnx_file in out.glob("*.onnx"):
         quantizer = ORTQuantizer.from_pretrained(str(out), file_name=onnx_file.name)
         quantizer.quantize(

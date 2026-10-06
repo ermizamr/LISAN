@@ -86,11 +86,13 @@ class TranslatorApi {
     required String target,
     String? sessionId,
     String formality = 'auto',
+    String speakerMode = 'auto',
   }) async {
     final qParams = <String, String>{
       'src': source,
       'tgt': target,
       'formality': formality,
+      'speaker_mode': speakerMode,
     };
     if (sessionId != null) {
       qParams['session_id'] = sessionId;

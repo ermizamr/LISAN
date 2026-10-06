@@ -232,6 +232,20 @@ class EthioMultilingualSTT:
             self.decoders = {}
             self.decoder = None
 
+    def score_language_logits(self, logits: np.ndarray) -> tuple[dict[str, float], dict[str, str]]:
+        """Score one CTC emission with each available language decoder."""
+        scores: dict[str, float] = {}
+        texts: dict[str, str] = {}
+        for language_code, decoder in getattr(self, "decoders", {}).items():
+            try:
+                beams = decoder.decode_beams(logits, beam_width=50)
+                if beams:
+                    texts[language_code] = beams[0][0].strip()
+                    scores[language_code] = float(beams[0][4])
+            except Exception as error:
+                console.print(f"[yellow]CTC {language_code} scoring warning: {error}[/yellow]")
+        return scores, texts
+
     def load(self):
         self.try_load()
 
@@ -433,21 +447,39 @@ class WhisperSTT:
             task="transcribe",
             temperature=0,
             condition_on_previous_text=False,
-            compression_ratio_threshold=2.4,
-            logprob_threshold=-1.0,
-            no_speech_threshold=0.6,
+            compression_ratio_threshold=2.2,
+            logprob_threshold=-0.8,
+            no_speech_threshold=0.45,
             initial_prompt=initial_prompt,
         )
-        return result["text"].strip()
+        
+        # Guard against Whisper silence hallucinations on background noise
+        segments = result.get("segments", [])
+        if segments:
+            valid_segments = []
+            for seg in segments:
+                no_speech_p = seg.get("no_speech_prob", 0.0)
+                avg_lp = seg.get("avg_logprob", 0.0)
+                seg_text = seg.get("text", "").strip()
+                if not seg_text:
+                    continue
+                # If segment has high no_speech_prob or critically low logprob, reject it as hallucination
+                if no_speech_p > 0.55 or avg_lp < -1.15:
+                    continue
+                valid_segments.append(seg_text)
+            return " ".join(valid_segments).strip()
+
+        return result.get("text", "").strip()
 
     @staticmethod
     def _trim_silence(audio_data: np.ndarray, sample_rate: int) -> np.ndarray:
-        """Remove quiet padding that can cause Whisper to hallucinate text."""
+        """Remove quiet padding and reject pure noise to prevent Whisper from hallucinating."""
         if audio_data.size == 0:
             return audio_data
 
         peak = float(np.max(np.abs(audio_data)))
-        if peak < 0.005:
+        # Any signal below 0.02 peak (-34 dB) in standard phone mic audio is room noise/silence
+        if peak < 0.02:
             return np.array([], dtype=np.float32)
 
         window_size = max(1, int(sample_rate * 0.02))
@@ -456,22 +488,24 @@ class WhisperSTT:
             np.ones(window_size, dtype=np.float32) / window_size,
             mode="same",
         )
-        active = np.flatnonzero(energy >= max(0.005, peak * 0.04))
+        active = np.flatnonzero(energy >= max(0.012, peak * 0.06))
         if active.size == 0:
             return np.array([], dtype=np.float32)
 
-        start_padding = int(sample_rate * 0.20)
-        end_padding = int(sample_rate * 0.45)
+        start_padding = int(sample_rate * 0.15)
+        end_padding = int(sample_rate * 0.30)
         start = max(0, int(active[0]) - start_padding)
         end = min(audio_data.size, int(active[-1]) + end_padding)
         trimmed = audio_data[start:end].astype(np.float32, copy=False)
 
-        # Phone microphones vary considerably in capture level. Bring quiet
-        # clips into a stable range without amplifying near-silent recordings.
+        # Phone microphones vary in sensitivity. Stabilize quiet speech without amplifying floor hiss.
         trimmed_peak = float(np.max(np.abs(trimmed)))
-        if 0.01 <= trimmed_peak < 0.8:
-            trimmed = trimmed * (0.8 / trimmed_peak)
+        if 0.035 <= trimmed_peak < 0.7:
+            gain = min(3.0, 0.75 / trimmed_peak)
+            trimmed = trimmed * gain
             trimmed = np.clip(trimmed, -1.0, 1.0)
+        elif trimmed_peak < 0.03:
+            return np.array([], dtype=np.float32)
         return trimmed
 
     def record_audio(self, duration: int = 5, sample_rate: int = 16000) -> str:
@@ -828,8 +862,12 @@ class MMSTTSEngine:
         from transformers import VitsModel, AutoTokenizer
         import torch
 
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = VitsModel.from_pretrained(model_name)
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
+            model = VitsModel.from_pretrained(model_name, local_files_only=True)
+        except Exception:
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model = VitsModel.from_pretrained(model_name)
         model.eval()
 
         self._models[model_name] = model
@@ -953,6 +991,11 @@ class TranslatorPipeline:
         t0 = time.time()
         console.print(Panel("[bold cyan]Loading Ethiopian Translator (Dataset.ET / Ethio-ASR)[/bold cyan]"))
         try:
+            # Prefer the dedicated Amharic model when its local cache is available.
+            self.hohe_stt.load()
+        except Exception as e:
+            console.print(f"[yellow]Amharic ASR note: {e}[/yellow]")
+        try:
             # Pre-load EthioMultilingualSTT as universal Ethiopian ASR engine (~2.4GB RAM)
             # Natively covers Amharic, Afaan Oromo, and Tigrinya with zero duplicate model overhead
             self.ethio_stt.load()
@@ -1049,6 +1092,67 @@ class TranslatorPipeline:
                     else:
                         return "Adigana magacaa?"
 
+            # 2b. Conversational greetings and inquiries (ሰላም / እንዴት ነህ / ደህና ነህ / etc.)
+            m_greet = re.match(r'^(?:ሰላም\s+)?(?:(ወንድሜ|እህቴ|ወዳጄ|ጓደኛዬ)\s+)?(?:እንዴት|ደህና|ሰላም)\s+(?:ነህ|ነሽ|ናችሁ|ነው|ኖት|ነዎት)(?:\s+(ወንድሜ|እህቴ|ወዳጄ|ጓደኛዬ))?$', t_clean)
+            if m_greet:
+                title = m_greet.group(1) or m_greet.group(2)
+                if tgt_lang in ('eng', 'eng_Latn'):
+                    t_map = {'ወንድሜ': 'my brother', 'እህቴ': 'my sister', 'ወዳጄ': 'my friend', 'ጓደኛዬ': 'my friend'}
+                    return f'Hello, how are you, {t_map[title]}?' if title else 'Hello, how are you?'
+                elif tgt_lang in ('orm', 'gaz_Latn'):
+                    t_map = {'ወንድሜ': 'obboleessa koo', 'እህቴ': 'obboleettii koo', 'ወዳጄ': 'hiriyyaa koo', 'ጓደኛዬ': 'hiriyyaa koo'}
+                    return f'Akkam jirta {t_map[title]}?' if title else 'Akkam jirta?'
+                elif tgt_lang in ('tir', 'tir_Ethi'):
+                    t_map = {'ወንድሜ': 'ሓወይ', 'እህቴ': 'ሓፍተይ', 'ወዳጄ': 'መሓዛይ', 'ጓደኛዬ': 'መሓዛይ'}
+                    return f'ሰላም ከመይ ኣለኻ {t_map[title]}?' if title else 'ሰላም ከመይ ኣለኻ?'
+                elif tgt_lang in ('som', 'som_Latn'):
+                    return 'Sidee tahay walaal?' if title else 'Sidee tahay?'
+
+            m_salute = re.match(r'^ሰላም(?:\s+(ወንድሜ|እህቴ|ወዳጄ|ጓደኛዬ))?$', t_clean)
+            if m_salute:
+                title = m_salute.group(1)
+                if tgt_lang in ('eng', 'eng_Latn'):
+                    t_map = {'ወንድሜ': 'my brother', 'እህቴ': 'my sister', 'ወዳጄ': 'my friend', 'ጓደኛዬ': 'my friend'}
+                    return f'Hello, {t_map[title]}!' if title else 'Hello!'
+                elif tgt_lang in ('orm', 'gaz_Latn'):
+                    t_map = {'ወንድሜ': 'obboleessa koo', 'እህቴ': 'obboleettii koo', 'ወዳጄ': 'hiriyyaa koo', 'ጓደኛዬ': 'hiriyyaa koo'}
+                    return f'Nagaa {t_map[title]}!' if title else 'Akkam!'
+                elif tgt_lang in ('tir', 'tir_Ethi'):
+                    t_map = {'ወንድሜ': 'ሓወይ', 'እህቴ': 'ሓፍተይ', 'ወዳጄ': 'መሓዛይ', 'ጓደኛዬ': 'መሓዛይ'}
+                    return f'ሰላም {t_map[title]}!' if title else 'ሰላም!'
+                elif tgt_lang in ('som', 'som_Latn'):
+                    return 'Nabad walaal!' if title else 'Nabad!'
+
+            if re.search(r'^ሰላም\s+ጤና\s+ይስጥልኝ$', t_clean):
+                if tgt_lang in ('eng', 'eng_Latn'):
+                    return 'Hello, greetings!'
+                elif tgt_lang in ('orm', 'gaz_Latn'):
+                    return "Nagaa fi fayyaan isiniif haa ta'u."
+                elif tgt_lang in ('tir', 'tir_Ethi'):
+                    return 'ጥዕና ይሃበለይ ።'
+                elif tgt_lang in ('som', 'som_Latn'):
+                    return 'Nabad iyo caafimaad.'
+
+            if re.search(r'^ሰላም\s+(?:እደር|እደሪ|እደሩ)$', t_clean):
+                if tgt_lang in ('eng', 'eng_Latn'):
+                    return 'Good night.'
+                elif tgt_lang in ('orm', 'gaz_Latn'):
+                    return 'Nagaan buli.'
+                elif tgt_lang in ('tir', 'tir_Ethi'):
+                    return 'ደሓን ሕደር ።'
+                elif tgt_lang in ('som', 'som_Latn'):
+                    return 'Habeen wanaagsan.'
+
+            if re.search(r'^በሰላም\s+(?:ዋልክ|ዋልሽ|ዋላችሁ|ዋል)$', t_clean):
+                if tgt_lang in ('eng', 'eng_Latn'):
+                    return 'Good afternoon, have a good day.'
+                elif tgt_lang in ('orm', 'gaz_Latn'):
+                    return 'Akkam ooltan.'
+                elif tgt_lang in ('tir', 'tir_Ethi'):
+                    return 'ከመይ ውዒልኩም ።'
+                elif tgt_lang in ('som', 'som_Latn'):
+                    return 'Galab wanaagsan.'
+
             # 3. Conversational time-of-day greetings
             if re.search(r"^እንደምን\s+(?:አደሩ|አደርክ|አደርሽ|አደራችሁ)$", t_clean):
                 if tgt_lang in ("eng", "eng_Latn"):
@@ -1110,6 +1214,26 @@ class TranslatorPipeline:
                     else:
                         return "And what is your name?"
 
+            m_orm_greet = re.match(r'^(?:harka fuune|akkam|nagaa dhaa|fayyaa dhaa)(?:\s+(?:jirta|jirtu|bultan|bulte|ooltan|oolte))?(?:\s+(obboleessa koo|obboleettii koo|hiriyyaa koo))?$', t_clean, re.IGNORECASE)
+            if m_orm_greet:
+                title = (m_orm_greet.group(1) or "").lower()
+                has_bro = "obboleessa" in title
+                has_sis = "obboleettii" in title
+                if tgt_lang in ("eng", "eng_Latn"):
+                    if has_bro: return "Hello, how are you, my brother?"
+                    if has_sis: return "Hello, how are you, my sister?"
+                    return "Hello, how are you?"
+                elif tgt_lang in ("amh", "amh_Ethi"):
+                    if has_bro: return "እንዴት ነህ ወንድሜ?"
+                    if has_sis: return "እንዴት ነሽ እህቴ?"
+                    return "እንዴት ነህ?"
+                elif tgt_lang in ("tir", "tir_Ethi"):
+                    if has_bro: return "ሰላም ከመይ ኣለኻ ሓወይ?"
+                    if has_sis: return "ሰላም ከመይ ኣለኺ ሓፍተይ?"
+                    return "ሰላም ከመይ ኣለኻ?"
+                elif tgt_lang in ("som", "som_Latn"):
+                    return "Sidee tahay walaal?" if (has_bro or has_sis) else "Sidee tahay?"
+
         # Tigrinya Source Patterns
         elif src_lang in ("tir", "tir_Ethi"):
             # 1. Self-introduction: "ኣነ [ስም] እበሃል" or "ስመይ [ስም] ይበሃል"
@@ -1146,6 +1270,26 @@ class TranslatorPipeline:
                 elif tgt_lang in ("orm", "gaz_Latn"):
                     return "Ati hoo maqaan kee eenyu?"
 
+            m_tir_greet = re.match(r'^(?:ሰላም\s+)?(?:ከመይ\s+(?:ኣለኻ|ኣለኺ|ኣለኹም|ዲኻ|ዲኺ|ዲኹም)|ደሓን\s+(?:ዲኻ|ዲኺ|ዲኹም)|ጥዕና\s+ይሃበለይ)(?:\s+(ሓወይ|ሓፍተይ|መሓዛይ))?$', t_clean)
+            if m_tir_greet:
+                title = m_tir_greet.group(1) or ""
+                has_bro = "ሓወይ" in title
+                has_sis = "ሓፍተይ" in title
+                if tgt_lang in ("eng", "eng_Latn"):
+                    if has_bro: return "Hello, how are you, my brother?"
+                    if has_sis: return "Hello, how are you, my sister?"
+                    return "Hello, how are you?"
+                elif tgt_lang in ("amh", "amh_Ethi"):
+                    if has_bro: return "እንዴት ነህ ወንድሜ?"
+                    if has_sis: return "እንዴት ነሽ እህቴ?"
+                    return "እንዴት ነህ?"
+                elif tgt_lang in ("orm", "gaz_Latn"):
+                    if has_bro: return "Akkam jirta obboleessa koo?"
+                    if has_sis: return "Akkam jirta obboleettii koo?"
+                    return "Akkam jirta?"
+                elif tgt_lang in ("som", "som_Latn"):
+                    return "Sidee tahay walaal?" if (has_bro or has_sis) else "Sidee tahay?"
+
             # 3. Broadcast anchor introductions:
             # "ጥዕና ይሃበለይ ከመይ ዲኹም ዝኸበርኩም ተመልከትትና/ተዓዘብትና"
             if re.search(r"^(?:ጥዕና\s+ይሃበለይ|ሰላም)\s*(?:፣|,)?\s*(?:ከመይ\s+(?:ዲኹም|ኣለኹም))\s*(?:ዝኸበርኩም|ክቡራት)\s+(?:ተመልከትትና|ተዓዘብትና)", t_clean):
@@ -1168,6 +1312,48 @@ class TranslatorPipeline:
                 elif tgt_lang in ("som", "som_Latn"):
                     return "Waxaan idin leenahay caafimaad, sidee tihiin dhagaystayaasheenna sharafta leh."
 
+        # English Source Patterns
+        elif src_lang in ("eng", "eng_Latn"):
+            m_en_greet = re.match(r"^(?:hello|hi|hey)?\s*(?:how\s+are\s+you|how\s+are\s+you\s+doing|how's\s+it\s+going)(?:,)?\s*(my\s+brother|my\s+sister|my\s+friend|bro)?\??$", t_clean, re.IGNORECASE)
+            if m_en_greet:
+                title = (m_en_greet.group(1) or "").lower()
+                has_bro = "brother" in title or "bro" in title
+                has_sis = "sister" in title
+                if tgt_lang in ("amh", "amh_Ethi"):
+                    if has_bro: return "እንዴት ነህ ወንድሜ?"
+                    if has_sis: return "እንዴት ነሽ እህቴ?"
+                    return "እንዴት ነህ?"
+                elif tgt_lang in ("orm", "gaz_Latn"):
+                    if has_bro: return "Akkam jirta obboleessa koo?"
+                    if has_sis: return "Akkam jirta obboleettii koo?"
+                    return "Akkam jirta?"
+                elif tgt_lang in ("tir", "tir_Ethi"):
+                    if has_bro: return "ከመይ ኣለኻ ሓወይ?"
+                    if has_sis: return "ከመይ ኣለኺ ሓፍተይ?"
+                    return "ከመይ ኣለኻ?"
+                elif tgt_lang in ("som", "som_Latn"):
+                    return "Sidee tahay walaal?" if (has_bro or has_sis) else "Sidee tahay?"
+
+            m_en_salute = re.match(r"^(?:hello|hi|hey)(?:,)?\s*(my\s+brother|my\s+sister|my\s+friend|bro)?[!.]?$", t_clean, re.IGNORECASE)
+            if m_en_salute:
+                title = (m_en_salute.group(1) or "").lower()
+                has_bro = "brother" in title or "bro" in title
+                has_sis = "sister" in title
+                if tgt_lang in ("amh", "amh_Ethi"):
+                    if has_bro: return "ሰላም ወንድሜ!"
+                    if has_sis: return "ሰላም እህቴ!"
+                    return "ሰላም!"
+                elif tgt_lang in ("orm", "gaz_Latn"):
+                    if has_bro: return "Nagaa obboleessa koo!"
+                    if has_sis: return "Nagaa obboleettii koo!"
+                    return "Akkam!"
+                elif tgt_lang in ("tir", "tir_Ethi"):
+                    if has_bro: return "ሰላም ሓወይ!"
+                    if has_sis: return "ሰላም ሓፍተይ!"
+                    return "ሰላም!"
+                elif tgt_lang in ("som", "som_Latn"):
+                    return "Nabad walaal!" if (has_bro or has_sis) else "Nabad!"
+
         return None
 
     def _translate_clause(self, clause: str, src_lang_key: str, tgt_lang_key: str) -> tuple[str, bool, list[str]]:
@@ -1182,14 +1368,11 @@ class TranslatorPipeline:
         if not c_clean:
             return "", False, []
 
-        # 1. High-fidelity conversational Translation Memory (SQLite exact + fuzzy)
-        try:
-            tm_match = TranslationMemory.get_instance().lookup(c_clean, src_lang_key, tgt_lang_key)
-            if tm_match:
-                console.print(f"[cyan]🎯 TM hit ({tm_match.dataset}, score={tm_match.score:.2f}): '{c_clean}' -> '{tm_match.target_text}'[/cyan]")
-                return tm_match.target_text, True, []
-        except Exception as tm_err:
-            console.print(f"[yellow]⚠ TM lookup error: {tm_err}[/yellow]")
+        # 1. Direct glossary exact match (curated, hand-verified idiomatic entries take top priority)
+        direct_match = check_exact_match(c_clean, src_lang_key, tgt_lang_key)
+        if direct_match:
+            console.print(f"[cyan]🎯 Direct glossary match: '{c_clean}' -> '{direct_match}'[/cyan]")
+            return direct_match, True, []
 
         # 2. Conversational entity & greeting patterns
         social_match = self._match_social_patterns(c_clean, src_lang_key, tgt_lang_key)
@@ -1197,10 +1380,14 @@ class TranslatorPipeline:
             console.print(f"[cyan]🎯 Social pattern hit: '{c_clean}' -> '{social_match}'[/cyan]")
             return social_match, True, []
 
-        # 3. Direct glossary exact match
-        direct_match = check_exact_match(c_clean, src_lang_key, tgt_lang_key)
-        if direct_match:
-            return direct_match, True, []
+        # 3. High-fidelity conversational Translation Memory (SQLite exact match + strict fuzzy >= 0.95)
+        try:
+            tm_match = TranslationMemory.get_instance().lookup(c_clean, src_lang_key, tgt_lang_key, min_similarity=0.95)
+            if tm_match:
+                console.print(f"[cyan]🎯 TM hit ({tm_match.dataset}, score={tm_match.score:.2f}): '{c_clean}' -> '{tm_match.target_text}'[/cyan]")
+                return tm_match.target_text, True, []
+        except Exception as tm_err:
+            console.print(f"[yellow]⚠ TM lookup error: {tm_err}[/yellow]")
 
         # 4. Entity Shield & Local Offline Neural Machine Translation
         shielded_clause, entities = EntityShield.shield(c_clean, src_lang_key)
@@ -1353,26 +1540,265 @@ class TranslatorPipeline:
             "warning": smart_res.warning,
         }
 
+    def detect_spoken_language(
+        self,
+        audio_path: str,
+        candidate_languages: list[str] | tuple[str, ...] | None = None,
+        preferred_target: str = "eng",
+        speaker_mode: str = "auto",
+    ) -> str:
+        """
+        Automatic Spoken Language Identification (LID) across:
+        - Amharic ('amh')
+        - Afaan Oromoo ('orm')
+        - Tigrinya ('tir')
+        - Somali ('som')
+        - English ('eng')
+        """
+        import re
+        import soundfile as sf
+        import scipy.signal as sig
+        import numpy as np
+        import torch
+
+        # Define candidate scope based on speaker_mode
+        if speaker_mode == "ethiopian_only":
+            candidates = {"amh", "orm", "tir", "som"}
+        elif candidate_languages:
+            candidates = set(candidate_languages)
+        else:
+            candidates = {"amh", "orm", "tir", "som", "eng"}
+
+        candidate_order = [language for language in ("amh", "orm", "tir", "som", "eng") if language in candidates]
+        if not candidate_order:
+            raise ValueError("candidate_languages must contain at least one supported language")
+
+        def fallback_language() -> str:
+            """Choose only from the requested candidates when LID is uncertain."""
+            whisper_scores = {
+                "eng": en_prob,
+                "som": so_prob,
+                "amh": am_prob,
+                "orm": or_prob,
+                "tir": ti_prob,
+            }
+            best_language = max(
+                candidate_order,
+                key=lambda language: whisper_scores.get(language, 0.0),
+            )
+            if whisper_scores.get(best_language, 0.0) > 0.0:
+                return best_language
+            return candidate_order[0]
+
+        # 1. Acoustic Language Check with Whisper (always run for best probs)
+        whisper_probs = {}
+        if self.stt.model is not None:
+            try:
+                import whisper
+                audio, sample_rate = sf.read(audio_path, dtype="float32", always_2d=False)
+                if audio.ndim > 1:
+                    audio = audio.mean(axis=1)
+                if sample_rate != 16000:
+                    num_samples = int(len(audio) * 16000 / sample_rate)
+                    audio = sig.resample(audio, num_samples).astype(np.float32)
+                audio = WhisperSTT._trim_silence(audio, 16000)
+                audio = whisper.pad_or_trim(audio)
+                mel = whisper.log_mel_spectrogram(audio)
+                _, whisper_probs = self.stt.model.detect_language(mel)
+            except Exception as e:
+                console.print(f"[yellow]Whisper LID warning: {e}[/yellow]")
+
+        en_prob = whisper_probs.get("en", 0.0)
+        so_prob = whisper_probs.get("so", 0.0)
+        am_prob = whisper_probs.get("am", 0.0)
+        or_prob = whisper_probs.get("om", whisper_probs.get("or", 0.0))
+        ti_prob = whisper_probs.get("ti", 0.0)
+
+        # English Speaker Mode: Whisper decisive for English
+        if speaker_mode == "english_speaker" and "eng" in candidates:
+            if en_prob >= 0.28:
+                console.print(f"[green]English detected en={en_prob:.2f} (English Speaker Mode)[/green]")
+                return "eng"
+
+        # Auto Mode: High-confidence English wins over Ethio-ASR
+        if "eng" in candidates and en_prob >= 0.35 and en_prob > am_prob and en_prob > so_prob:
+            console.print(f"[green]High-confidence English (en={en_prob:.2f})[/green]")
+            return "eng"
+
+        # 2. Ethiopian Multilingual Model CTC Forward Pass
+        raw_decoded = ""
+        ctc_scores: dict[str, float] = {}
+        ctc_texts: dict[str, str] = {}
+        if self.ethio_stt.model is None:
+            self.ethio_stt.try_load()
+
+        if self.ethio_stt.model is not None and self.ethio_stt.processor is not None:
+            try:
+                audio_data, sample_rate = sf.read(audio_path, dtype="float32", always_2d=False)
+                if audio_data.ndim > 1:
+                    audio_data = audio_data.mean(axis=1)
+                if sample_rate != 16000:
+                    num_samples = int(len(audio_data) * 16000 / sample_rate)
+                    audio_data = sig.resample(audio_data, num_samples).astype(np.float32)
+
+                audio_data = WhisperSTT._trim_silence(audio_data, 16000)
+                if audio_data.size > 0:
+                    inputs = self.ethio_stt.processor(
+                        audio_data, sampling_rate=16000, return_tensors="pt", padding=True
+                    )
+                    with torch.no_grad():
+                        logits = self.ethio_stt.model(**inputs).logits
+                    if hasattr(self.ethio_stt, "score_language_logits"):
+                        ctc_scores, ctc_texts = self.ethio_stt.score_language_logits(
+                            logits[0].float().cpu().numpy()
+                        )
+                    if ctc_texts:
+                        raw_decoded = max(
+                            ctc_texts,
+                            key=lambda language_code: ctc_scores[language_code],
+                        )
+                        raw_decoded = ctc_texts[raw_decoded]
+                    else:
+                        predicted_ids = torch.argmax(logits, dim=-1)
+                        raw_decoded = self.ethio_stt.processor.batch_decode(predicted_ids)[0].strip()
+            except Exception as e:
+                console.print(f"[yellow]EthioMultilingualSTT LID warning: {e}[/yellow]")
+
+        console.print(f"[cyan]LID Scan -> CTC: '{raw_decoded}' | en={en_prob:.2f}, so={so_prob:.2f}, am={am_prob:.2f}, or={or_prob:.2f}, ti={ti_prob:.2f} [mode={speaker_mode}][/cyan]")
+
+        # Count character types in raw CTC output
+        geez_chars = len(re.findall(r"[\u1200-\u137F]", raw_decoded))
+        latin_chars = len(re.findall(r"[a-zA-Z]", raw_decoded))
+        norm_text = raw_decoded.lower()
+
+        # The multilingual model can emit an explicit language token. Trust it
+        # before applying script heuristics, which are only useful as weak evidence.
+        token_match = re.search(r"\[(AMH|ORM|TIR|SID|WAL)\]", raw_decoded)
+        if token_match and not ctc_scores:
+            tok = token_match.group(1)
+            if tok == "AMH" and "amh" in candidates: return "amh"
+            if tok == "ORM" and "orm" in candidates: return "orm"
+            if tok == "TIR" and "tir" in candidates:
+                # The model occasionally emits [TIR] for Amharic greetings.
+                # Require the decoded text not to contain strong Amharic markers.
+                amharic_markers = {"ሰላም", "እንዴት", "ነው", "ነኝ", "ይቅርታ", "ደህና"}
+                if not any(marker in raw_decoded for marker in amharic_markers):
+                    return "tir"
+                if "amh" in candidates:
+                    return "amh"
+
+        # Primary Ethiopian LID path: compare language-model scores from the
+        # multilingual CTC decoders instead of trusting raw argmax text.
+        ctc_language_codes = {
+            "amh": "am",
+            "orm": "om",
+            "tir": "ti",
+        }
+        scored_candidates = {
+            language: ctc_scores[ctc_language_codes[language]]
+            for language in candidate_order
+            if language in ctc_language_codes and ctc_language_codes[language] in ctc_scores
+        }
+        if scored_candidates:
+            best_language = max(scored_candidates, key=scored_candidates.get)
+            if best_language in candidates:
+                return best_language
+
+        # -----------------------------------------------------------------
+        # ETHIOPIC SCRIPT GUARD: If CTC output is dominantly Ge'ez,
+        # skip directly to the Amharic/Tigrinya split.  This prevents
+        # a few stray Latin chars from pulling us into the wrong branch.
+        # -----------------------------------------------------------------
+        if geez_chars >= 3 and geez_chars > latin_chars * 2:
+            if candidates == {"amh"}:
+                return "amh"
+            if candidates == {"tir"}:
+                return "tir"
+
+            tir_kw_g = {"ከመይ", "ኣለዛ", "ኣለኺ", "ኣለኹም", "ከካሉክሉይለይየ", "ዲዛ", "ዲኺ", "ዲኹም", "ናይ", "ኣብ", "ዕንታይ", "መን", "ዕወ", "ኣይኮነን", "ይጥሄታ", "ግቡን", "ንሕና"}
+            amh_kw_g = {"ዕንዳት", "አለህ", "አለት", "አሉችሁ", "አመሰግናለሁ", "ነኝ", "ነወ", "ነት", "ነህ", "ናችወ", "ምንድን", "ማን", "አወ", "ዕሲ", "አይደለም", "ይቅርታ", "ደህና", "ሰላም"}
+            tir_m = sum(1 for kw in tir_kw_g if kw in raw_decoded)
+            amh_m = sum(1 for kw in amh_kw_g if kw in raw_decoded)
+
+            if tir_m > amh_m and "tir" in candidates:
+                return "tir"
+            return "amh" if "amh" in candidates else fallback_language()
+
+        # English keyword check — require 3+ UNIQUE hits with zero Ge'ez chars.
+        # This prevents CTC noise from Ethiopian speech spuriously matching English words.
+        eng_keywords = {
+            "hello", "hi", "how", "are", "you", "what", "where", "when", "why", "who",
+            "good", "morning", "afternoon", "evening", "thank", "thanks", "please",
+            "name", "is", "the", "this", "that", "can", "help", "need", "want",
+            "doctor", "hospital", "yes", "no", "okay", "sorry", "speak", "english", "understand",
+        }
+        eng_hits = len({w for w in re.findall(r"\b[a-z]+\b", norm_text) if w in eng_keywords})
+        if "eng" in candidates and geez_chars == 0 and (en_prob >= 0.30 or eng_hits >= 3):
+            return "eng"
+
+        # -----------------------------------------------------------------
+        # Branch 1: Ethiopic Script Present (Amharic vs Tigrinya)
+        # -----------------------------------------------------------------
+        if geez_chars > 0 and geez_chars >= latin_chars:
+            if candidates == {"amh"}:
+                return "amh"
+            if candidates == {"tir"}:
+                return "tir"
+
+            tir_keywords = {"ከመይ", "ኣለዛ", "ኣለኺ", "ኣለኹም", "ከካሉክሉይለይየ", "ዲዛ", "ዲኺ", "ዲኹም", "ናይ", "ኣብ", "ዕንታይ", "መን", "ዕወ", "ኣይኮነን", "ይጥሄታ", "ግቡን", "ንሕና"}
+            amh_keywords = {"ዕንዳት", "አለህ", "አለት", "አሉችሁ", "አመሰግናለሁ", "ነኝ", "ነወ", "ነት", "ነህ", "ናችወ", "ምንድን", "ማን", "አወ", "ዕሲ", "አይደለም", "ይቅርታ", "ደህና", "ሰላም"}
+
+            tir_matches = sum(1 for kw in tir_keywords if kw in raw_decoded)
+            amh_matches = sum(1 for kw in amh_keywords if kw in raw_decoded)
+
+            if tir_matches > amh_matches and "tir" in candidates:
+                return "tir"
+            return "amh" if "amh" in candidates else fallback_language()
+
+        # -----------------------------------------------------------------
+        # Branch 2: Latin Script Dominated (Oromo, Somali, English)
+        # -----------------------------------------------------------------
+        # Somali: require 2+ keyword hits OR Whisper >= 0.35
+        som_keywords = {
+            "sidee", "tahay", "tihiin", "mahadsanid", "waa", "adiga", "aniga", "maxaa",
+            "xagee", "magacaa", "subax", "galab", "wanaagsan", "fiican", "fadlan",
+            "haa", "maya", "nabad", "barasho",
+        }
+        som_hits = sum(1 for w in re.findall(r"\b[a-z]+\b", norm_text) if w in som_keywords)
+        if "som" in candidates and (so_prob >= 0.35 or som_hits >= 2):
+            return "som"
+
+        # Oromo: require 1+ keyword hit.
+        # Qubee doubled vowels (aa/ee/oo) alone are NOT sufficient because English has
+        # them too ("food", "need", "tool") -- they only count alongside a keyword.
+        orm_keywords = {
+            "akkam", "jirtu", "jirta", "fayyaa", "baga", "nagaan", "dhuftan", "galatoomi",
+            "maal", "eessa", "eenyu", "ani", "ati", "maqaan", "koo", "jedhama", "waan",
+            "gaarii", "isbitaala", "obboo", "aaddee", "nagaa", "hundaa", "tokkoo", "lamaan",
+        }
+        orm_hits = sum(1 for w in re.findall(r"\b[a-z']+\b", norm_text) if w in orm_keywords)
+        has_qubee_doubles = bool(re.search(r"(?:aa|ee|oo|uu|ii)", norm_text)) and orm_hits >= 1
+        if "orm" in candidates and (orm_hits >= 1 or has_qubee_doubles):
+            return "orm"
+
+        # Final fallback using Whisper residual probabilities
+        if "eng" in candidates and en_prob > 0.22:
+            return "eng"
+        if "orm" in candidates:
+            return "orm"
+        if "som" in candidates:
+            return "som"
+        if "amh" in candidates and am_prob > 0.25:
+            return "amh"
+
+        return fallback_language()
+
     def _detect_audio_language(self, audio_path: str, pair: tuple[str, str]) -> str | None:
         """Fast ~15ms acoustic language check between the conversation languages."""
-        if self.stt.model is None:
-            return None
         try:
-            import whisper
-            audio = whisper.load_audio(audio_path)
-            audio = whisper.pad_or_trim(audio)
-            mel = whisper.log_mel_spectrogram(audio)
-            _, probs = self.stt.model.detect_language(mel)
-            # If English is in the pair, check if audio is strongly English
-            if "eng" in pair:
-                en_prob = probs.get("en", 0.0)
-                if en_prob > 0.35:
-                    return "eng"
-                else:
-                    other = pair[0] if pair[1] == "eng" else pair[1]
-                    return other
+            return self.detect_spoken_language(audio_path, candidate_languages=list(pair))
         except Exception:
-            pass
+            return None
     @staticmethod
     def _split_audio_segments(
         audio_data: np.ndarray,
@@ -1389,10 +1815,11 @@ class TranslatorPipeline:
             return [audio_data]
 
         peak = float(np.max(np.abs(audio_data)))
-        if peak < 0.005:
+        # Any signal below 0.025 peak is background room noise/silence
+        if peak < 0.025:
             return []
 
-        thresh = max(0.005, peak * silence_threshold)
+        thresh = max(0.015, peak * silence_threshold)
         window_size = max(1, int(sample_rate * 0.02))  # 20ms
         energy = np.convolve(np.abs(audio_data), np.ones(window_size, dtype=np.float32) / window_size, mode="same")
         is_speech = energy >= thresh
@@ -1424,6 +1851,10 @@ class TranslatorPipeline:
             if (seg_end - seg_start) >= min_speech_samples:
                 segments.append(audio_data[seg_start:seg_end])
 
+        # If too many tiny segments detected, audio is likely fluctuating noise rather than clean speech
+        if len(segments) > 6:
+            return [audio_data]
+
         return segments if segments else [audio_data]
 
     def _transcribe_robust(self, audio_path: str, src_lang_key: str) -> str:
@@ -1439,6 +1870,11 @@ class TranslatorPipeline:
             num_samples = int(len(audio_data) * 16000 / sample_rate)
             audio_data = sig.resample(audio_data, num_samples).astype(np.float32)
             sample_rate = 16000
+
+        # Overall audio energy check: discard pure ambient silence
+        peak = float(np.max(np.abs(audio_data)))
+        if peak < 0.02:
+            return ""
 
         segments = self._split_audio_segments(audio_data, sample_rate)
         if len(segments) <= 1:
@@ -1471,17 +1907,41 @@ class TranslatorPipeline:
         speak_result: bool = True,
         session_id: str | None = None,
         formality: str = "auto",
+        speaker_mode: str = "auto",
     ) -> dict:
         """Full pipeline: audio file → transcribe → smart translate → (optionally speak)."""
         effective_src = src_lang_key
         effective_tgt = tgt_lang_key
 
-        # Step 0: Fast Acoustic Language Auto-Routing
-        detected = self._detect_audio_language(audio_path, (src_lang_key, tgt_lang_key))
-        if detected and detected != src_lang_key and detected in (src_lang_key, tgt_lang_key):
-            console.print(f"[yellow]⚡ Auto-routed speech: detected '{detected}' (swapped from '{src_lang_key}')[/yellow]")
+        # Step 0: Spoken Language Identification & Auto-Routing
+        if src_lang_key in ("auto", "detect", None) or src_lang_key not in LANGUAGES:
+            detected = self.detect_spoken_language(
+                audio_path,
+                preferred_target=tgt_lang_key,
+                speaker_mode=speaker_mode,
+            )
             effective_src = detected
-            effective_tgt = src_lang_key if detected == tgt_lang_key else tgt_lang_key
+            console.print(f"[yellow]⚡ Spoken language automatically identified: '{LANGUAGES[detected]['name']}' ({detected}) [mode={speaker_mode}][/yellow]")
+            if speaker_mode == "english_speaker":
+                if effective_src == "eng":
+                    effective_tgt = tgt_lang_key if tgt_lang_key != "eng" else "amh"
+                else:
+                    if tgt_lang_key and tgt_lang_key not in ("auto", "detect", effective_src):
+                        effective_tgt = tgt_lang_key
+                    else:
+                        effective_tgt = "eng"
+            elif speaker_mode == "ethiopian_only":
+                if effective_src == effective_tgt:
+                    effective_tgt = "amh" if effective_src != "amh" else "orm"
+            else:
+                if effective_src == effective_tgt:
+                    effective_tgt = "eng" if effective_src != "eng" else "amh"
+        else:
+            detected = self._detect_audio_language(audio_path, (src_lang_key, tgt_lang_key))
+            if detected and detected != src_lang_key and detected in (src_lang_key, tgt_lang_key):
+                console.print(f"[yellow]⚡ Auto-routed speech: detected '{detected}' (swapped from '{src_lang_key}')[/yellow]")
+                effective_src = detected
+                effective_tgt = src_lang_key if detected == tgt_lang_key else tgt_lang_key
 
         src_lang = LANGUAGES[effective_src]
         tgt_lang = LANGUAGES[effective_tgt]
@@ -1496,6 +1956,26 @@ class TranslatorPipeline:
         transcribed = SpeechRepair.repair(raw_transcribed, effective_src)
         stt_time = time.time() - t0
         console.print(f"[green]  Transcribed ({stt_time:.1f}s): '{transcribed}'[/green]")
+
+        if not transcribed or not transcribed.strip():
+            console.print("[yellow]⚠ No clear speech detected in audio.[/yellow]")
+            return {
+                "source_text": "",
+                "translated_text": "",
+                "src_lang": effective_src,
+                "tgt_lang": effective_tgt,
+                "intent": "general_conversation",
+                "formality": formality,
+                "suggested_replies": [],
+                "confidence": 0.0,
+                "is_tm_match": False,
+                "entities_preserved": [],
+                "warning": "No speech detected. Please speak closer to the microphone.",
+                "stt_time": round(stt_time, 2),
+                "trans_time": 0.0,
+                "tts_time": 0.0,
+                "total_time": round(stt_time, 2),
+            }
 
         # Step 2: Smart Translation (with context, intent, and suggestions)
         t1 = time.time()

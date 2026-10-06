@@ -40,6 +40,11 @@ AMHARIC_SPOKEN_CONTRACTIONS = [
     (r"\bደህናነሽ\b", "ደህና ነሽ"),
     (r"\bደህናነኝ\b", "ደህና ነኝ"),
     (r"\bደህና\s*ነክ\b", "ደህና ነህ"),
+    (r"\bሰላምነህ\b", "ሰላም ነህ"),
+    (r"\bሰላምነሽ\b", "ሰላም ነሽ"),
+    (r"\bሰላምናችሁ\b", "ሰላም ናችሁ"),
+    (r"\bሰላምነው\b", "ሰላም ነው"),
+    (r"\bሰላም\s*ነክ\b", "ሰላም ነህ"),
     (r"\bአለክ\b", "አለህ"),
     (r"\bትባላለክ\b", "ትባላለህ"),
     (r"\bነክ\b", "ነህ"),
@@ -415,7 +420,7 @@ class SpeechRepair:
             # In Qubee, 2 identical vowels/consonants are valid (gemination/long vowel),
             # but 3 or more (e.g. 'aaaa', 'kkk') are acoustic drag/elongation: collapse to 2.
             text = re.sub(r"([a-zA-Z])\1{2,}", r"\1\1", text)
-        elif lang_code in ("amh", "amh_Ethi", "tir", "tir_Ethi"):
+        elif lang_code in ("amh", "amh_Ethi"):
             text = cls.normalize_ethiopic_homophones(text)
 
         # Step 2: Expand spoken contractions & dialectal phonetic variations
@@ -455,11 +460,12 @@ class SpeechRepair:
             # Self-introductions & declarative predicates before transition: "እኔ ... እባላለሁ። አንተስ..."
             s = re.sub(r"(እባላለሁ|ይባላል|ተባልኩ|ነኝ|ነው|ነበር)\s+(አንተስ|አንቺስ|እናንተስ|እሱስ|እሷስ|እሱም|እሷም|አንተ|አንቺ|ግን|ደግሞ)", r"\1። \2", s)
             
-            # Terminal punctuation if missing
-            if s and not s[-1] in ".?!:;፣፧፨\n":
-                if re.search(r"(ምን ታስባለህ|እንዴት ነው|እንዴት ነህ|እንዴት ነሽ|እንዴት ናችሁ|የት ነው|ስንት ነው|ለምን|ምንድነው|ማን ትባላለህ|ማን ትባያለሽ|ስምህ ማን ነው|ስምሽ ማን ነው|ማን ነው)(?:\s+(?:ወንድሜ|እህቴ|ወዳጄ|ጓደኛዬ))?$", s):
+            # Clean up consecutive punctuation and trailing punctuation
+            s = re.sub(r"[።\.\s]+$", "", s)
+            if s:
+                if re.search(r"(ምን ታስባለህ|እንዴት ነው|እንዴት ነህ|እንዴት ነሽ|እንዴት ናችሁ|የት ነው|ስንት ነው|ለምን|ምንድነው|ማን ትባላለህ|ማን ትባያለሽ|ስምህ ማን ነው|ስምሽ ማን ነው|ማን ነው|ሰላም ነው|ሰላም ነህ|ሰላም ነሽ|ሰላም ናችሁ|ደህና ነህ|ደህና ነሽ|ደህና ናችሁ)(?:\s+(?:ወንድሜ|እህቴ|ወዳጄ|ጓደኛዬ))?$", s):
                     s += "?"
-                else:
+                elif not s[-1] in ".?!:;፣፧፨":
                     s += "።"
 
         elif lang_code in ("orm", "gaz_Latn"):
@@ -481,25 +487,26 @@ class SpeechRepair:
 
             # Standard conversational clause boundaries
             s = re.sub(r"(ከመይ ኣለኻ|ከመይ ኣለኺ|ከመይ ኣለኹም|ከመይ ዲኹም|ከመይ ዲኻ|ከመይ ዲኺ|ኣበይ ኣሎ|ኣበይ ኣላ|ክንዲ ምንታይ|መን እዩ|ስለምንታይ|ደሓንዶ|ደሓን ዲኻ)\s+(እዚ|እቲ|ኣነ|ንስኻ|ንስኺ|ግን|ደግሞ|ሎሚ)", r"\1? \2", s)
-            s = re.sub(r"(ሰላም|ሰላም እዩ)\s+(ከመይ ኣለኻ|ከመይ ኣለኺ|ከመይ ዲኹም|ደሓንዶ|ደሓን ዲኻ)", r"\1! \2", s)
             s = re.sub(r"(እደሊ ኣለኹ|የቐንየለይ|ደሓን|እዩ|ኣይኮነን|ቀሪብና ኣለና)\s+(ኣነ|ንስኻ|ንስኺ|ግን|እዚ|ደግሞ|ሎሚ)", r"\1። \2", s)
             # Clean up consecutive punctuation and trailing punctuation
             s = re.sub(r"[።\.\s]+$", "", s)
             if s:
-                if re.search(r"(ከመይ ኣለኻ|ከመይ ኣለኺ|ከመይ ኣለኹም|ከመይ ዲኹም|ከመይ ዲኻ|ከመይ ዲኺ|ኣበይ ኣሎ|ክንዲ ምንታይ|መን እዩ|ደሓንዶ|ደሓን ዲኻ|ስለምንታይ)$", s):
+                if re.search(r"(ከመይ ኣለኻ|ከመይ ኣለኺ|ከመይ ኣለኹም|ከመይ ዲኹም|ከመይ ዲኻ|ከመይ ዲኺ|ኣበይ ኣሎ|ክንዲ ምንታይ|መን እዩ|ደሓንዶ|ደሓን ዲኻ|ስለምንታይ)(?:\s+(?:ሓወይ|ሓፍተይ|መሓዛይ))?$", s):
                     s += "?"
-                else:
+                elif not s[-1] in ".?!:;፣፧፨":
                     s += "።"
 
         elif lang_code in ("som", "som_Latn"):
             # Somali clause boundaries & punctuation
-            s = re.sub(r"(?i)\b(sidee tahay|sidee tihiin|iska warran|xaggee bay ku taal|immisa weeye|maxay tahay|waayo)\b(?!\?)", r"\1?", s)
-            s = re.sub(r"(?i)(iska warran|nabad)\s+(sidee tahay|subax wanaagsan|galab wanaagsan)", r"\1! \2", s)
+            s = re.sub(r"(?i)\b(sidee tahay|sidee tihiin|iska warran|xaggee bay ku taal|immisa weeye|maxay tahay|waayo)(?:\s+walaal)?\s+(aniga|adiga|waa|waxaan|fadlan|halkan)", r"\1? \2", s)
+            s = re.sub(r"(?i)(iska warran|nabad)\s+(aniga|adiga|waa|waxaan)", r"\1! \2", s)
             s = re.sub(r"(?i)(mahadsanid|nabad gelyo|waan fiicanahay)\s+([A-Za-z])", r"\1. \2", s)
-            if s and not s[-1] in ".?!:;\n":
-                if re.search(r"(?i)\b(sidee|xaggee|xagee|immisa|imisa|maxay|waayo|miyaa)\??$", s):
-                    s += "?"
-                else:
+            s = re.sub(r"[\.\s]+$", "", s)
+            if s:
+                if re.search(r"(?i)\b(sidee|sidee tahay|sidee tihiin|iska warran|xaggee|xagee|immisa|imisa|maxay|waayo|miyaa)(?:\s+walaal)?\??$", s):
+                    if not s.endswith("?"):
+                        s += "?"
+                elif not s[-1] in ".?!:;":
                     s += "."
 
         elif lang_code in ("eng", "eng_Latn"):
