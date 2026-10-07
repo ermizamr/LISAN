@@ -274,6 +274,15 @@ def main():
     if cuda_avail and args.use_4bit:
         model = prepare_model_for_kbit_training(model)
 
+    # Neutralize transformers / peft Seq2Seq kwargs rename compatibility bug
+    for target_obj in (model, model.__class__):
+        if not hasattr(target_obj, "_prepare_encoder_decoder_kwargs_for_generation"):
+            alt_fn = getattr(target_obj, "_prepare_text_encoder_decoder_kwargs_for_generation", None)
+            if alt_fn is not None:
+                setattr(target_obj, "_prepare_encoder_decoder_kwargs_for_generation", alt_fn)
+            else:
+                setattr(target_obj, "_prepare_encoder_decoder_kwargs_for_generation", lambda *a, **k: {})
+
     # 6. LoRA Adapter Config
     print(f"Initializing LoRA adapter (rank={args.lora_r}, alpha={args.lora_alpha})...")
     lora_config = LoraConfig(

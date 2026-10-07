@@ -131,6 +131,15 @@ def merge_nllb(base_model_name: str, adapter_dir: str, merged_dir: str, c2_dir: 
     except Exception:
         pass
 
+    # Neutralize transformers / peft Seq2Seq kwargs rename compatibility bug
+    for target_obj in (base_model, base_model.__class__):
+        if not hasattr(target_obj, "_prepare_encoder_decoder_kwargs_for_generation"):
+            alt_fn = getattr(target_obj, "_prepare_text_encoder_decoder_kwargs_for_generation", None)
+            if alt_fn is not None:
+                setattr(target_obj, "_prepare_encoder_decoder_kwargs_for_generation", alt_fn)
+            else:
+                setattr(target_obj, "_prepare_encoder_decoder_kwargs_for_generation", lambda *a, **k: {})
+
     peft_model = PeftModel.from_pretrained(
         base_model,
         str(adapter_p),
