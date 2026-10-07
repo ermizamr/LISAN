@@ -34,6 +34,7 @@ if hasattr(sys.stdout, "reconfigure"):
 ROOT_DIR = Path(__file__).resolve().parent.parent
 RAW_DIR = ROOT_DIR / "data" / "raw_bitext"
 DB_PATH = ROOT_DIR / "data" / "translation_memory.db"
+HORNMT_DIR = ROOT_DIR / "data" / "hornmt"
 OUTPUT_DIR = ROOT_DIR / "data" / "training_data"
 
 NLLB_MAP = {
@@ -53,6 +54,18 @@ RAW_FILES = [
     {"file": "somali-tigrinya.csv", "src": "som", "tgt": "tir", "src_col": "Somali", "tgt_col": "Tigrinya"},
 ]
 
+ETHIOPIC_REGEX = re.compile(r"[\u1200-\u137F]")
+LATIN_REGEX = re.compile(r"[a-zA-Z]")
+
+
+def is_valid_script(text: str, lang: str) -> bool:
+    """Verify text matches the expected writing script of the language."""
+    if lang in ("amh", "tir"):
+        return bool(ETHIOPIC_REGEX.search(text))
+    elif lang in ("orm", "som", "eng"):
+        return bool(LATIN_REGEX.search(text))
+    return True
+
 
 def clean_text(text: str) -> str:
     """Clean whitespace, quotes, and normalize Unicode."""
@@ -65,15 +78,58 @@ def clean_text(text: str) -> str:
 
 def build_massive_corpus(target_per_direction: int = 8000, min_score: float = 1.05, val_ratio: float = 0.05):
     print("=" * 75)
-    print("       LISAN AI — MASSIVE INTER-LOCAL MULTILINGUAL CORPUS BUILDER")
+    print("       LISAN AI — MASSIVE MULTILINGUAL CORPUS BUILDER (EXPANDED)")
     print("=" * 75)
 
     pairs_pool = defaultdict(list)
     seen_hashes = set()
 
-    # 1. Ingest Translation Memory DB (High confidence, conversational focus)
+    # 1. Ingest Gold Standard HornMT Corpus (first 1,500 lines for training, reserve rest)
+    if HORNMT_DIR.exists():
+        print(f"Ingesting 5-Way HornMT Gold Parallel Corpus from {HORNMT_DIR}...")
+        horn_langs = ["amh", "eng", "orm", "som", "tir"]
+        horn_texts = {}
+        for l in horn_langs:
+            txt_file = HORNMT_DIR / f"{l}.txt"
+            if txt_file.exists():
+                horn_texts[l] = [line.strip() for line in txt_file.read_text(encoding="utf-8").splitlines()]
+
+        # Use first 1500 parallel lines for training
+        num_horn_lines = min(len(horn_texts[l]) for l in horn_langs) if len(horn_texts) == 5 else 0
+        train_horn_limit = min(num_horn_lines, 1500)
+        horn_added = 0
+
+        for idx in range(train_horn_limit):
+            for s_l in horn_langs:
+                for t_l in horn_langs:
+                    if s_l == t_l:
+                        continue
+                    s_t = clean_text(horn_texts[s_l][idx])
+                    t_t = clean_text(horn_texts[t_l][idx])
+                    if not s_t or not t_t or s_t == t_t:
+                        continue
+                    if not is_valid_script(s_t, s_l) or not is_valid_script(t_t, t_l):
+                        continue
+                    h_key = f"{s_l}:{s_t}:{t_l}:{t_t}"
+                    if h_key not in seen_hashes:
+                        seen_hashes.add(h_key)
+                        p_key = f"{s_l}->{t_l}"
+                        pairs_pool[p_key].append({
+                            "source": s_t,
+                            "target": t_t,
+                            "src_lang": s_l,
+                            "tgt_lang": t_l,
+                            "src_nllb": NLLB_MAP[s_l],
+                            "tgt_nllb": NLLB_MAP[t_l],
+                            "domain": "hornmt_gold",
+                            "confidence": 1.0,
+                        })
+                        horn_added += 1
+        print(f"  • Ingested {horn_added:,} HornMT gold sentence pairs across all 20 directions.")
+
+    # 2. Ingest Translation Memory DB (High confidence, conversational focus)
     if DB_PATH.exists():
-        print(f"Connecting to Translation Memory DB ({DB_PATH.name})...")
+        print(f"\nConnecting to Translation Memory DB ({DB_PATH.name})...")
         conn = sqlite3.connect(str(DB_PATH))
         cur = conn.cursor()
         cur.execute("""
@@ -95,6 +151,8 @@ def build_massive_corpus(target_per_direction: int = 8000, min_score: float = 1.
                 continue
             if src_l not in NLLB_MAP or tgt_l not in NLLB_MAP:
                 continue
+            if not is_valid_script(s_t, src_l) or not is_valid_script(t_t, tgt_l):
+                continue
 
             pair_key = f"{src_l}->{tgt_l}"
             hash_key = f"{src_l}:{s_t}:{tgt_l}:{t_t}"
@@ -113,7 +171,7 @@ def build_massive_corpus(target_per_direction: int = 8000, min_score: float = 1.
                 "confidence": float(conf) if conf else 1.0,
             })
 
-    # 2. Ingest raw bitext CSVs (Amharic, Oromo, Tigrinya, Somali pairs)
+    # 3. Ingest raw bitext CSVs (Amharic, Oromo, Tigrinya, Somali pairs)
     if RAW_DIR.exists():
         print(f"\nProcessing raw parallel bitext from {RAW_DIR}...")
         for meta in RAW_FILES:
@@ -145,10 +203,16 @@ def build_massive_corpus(target_per_direction: int = 8000, min_score: float = 1.
 
                     if not s_t or not t_t or s_t == t_t:
                         continue
-                    # Word length sanity (skip extreme one-character anomalies or 100+ word novels)
+                    # Word length sanity (skip extreme anomalies)
                     s_words = len(s_t.split())
                     t_words = len(t_t.split())
                     if s_words < 2 or t_words < 2 or s_words > 60 or t_words > 60:
+                        continue
+                    # Script validity check
+                    if not is_valid_script(s_t, src_code) or not is_valid_script(t_t, tgt_code):
+                        continue
+                    # Length ratio filter (filter misaligned bitext)
+                    if max(s_words / t_words, t_words / s_words) > 2.5:
                         continue
 
                     # Forward: src -> tgt

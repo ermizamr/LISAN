@@ -57,12 +57,13 @@ def parse_args():
     parser.add_argument("--learning_rate", type=float, default=2e-4)
     parser.add_argument("--num_epochs", type=int, default=3)
     parser.add_argument("--max_length", type=int, default=128)
-    parser.add_argument("--lora_r", type=int, default=16)
-    parser.add_argument("--lora_alpha", type=int, default=32)
+    parser.add_argument("--lora_r", type=int, default=32, help="LoRA rank dimension (32 for high capacity)")
+    parser.add_argument("--lora_alpha", type=int, default=64, help="LoRA scaling alpha")
     parser.add_argument("--lora_dropout", type=float, default=0.05)
     parser.add_argument("--use_4bit", action="store_true", default=True, help="Use 4-bit QLoRA")
     parser.add_argument("--no_4bit", dest="use_4bit", action="store_false")
     parser.add_argument("--merge_and_export", action="store_true", default=True, help="Automatically merge LoRA and convert to CTranslate2 INT8")
+    parser.add_argument("--export_onnx", action="store_true", default=True, help="Automatically export merged model to mobile ONNX INT8")
     parser.add_argument("--eval_benchmarks", action="store_true", default=False, help="Run HornMT evaluation after training")
     parser.add_argument("--merge_only", action="store_true", default=False,
                         help="Skip training and only merge existing LoRA adapter into standalone model and CTranslate2 INT8")
@@ -279,7 +280,7 @@ def main():
         r=args.lora_r,
         lora_alpha=args.lora_alpha,
         lora_dropout=args.lora_dropout,
-        target_modules=["q_proj", "v_proj", "k_proj", "out_proj"],
+        target_modules=["q_proj", "v_proj", "k_proj", "out_proj", "fc1", "fc2"],
         bias="none",
         task_type=TaskType.SEQ_2_SEQ_LM,
     )
@@ -305,6 +306,9 @@ def main():
         "per_device_eval_batch_size": args.batch_size,
         "gradient_accumulation_steps": args.grad_accum,
         "weight_decay": 0.01,
+        "label_smoothing_factor": 0.1,
+        "lr_scheduler_type": "cosine",
+        "warmup_ratio": 0.05,
         "save_total_limit": 2,
         "num_train_epochs": args.num_epochs,
         "predict_with_generate": False,
@@ -363,6 +367,17 @@ def main():
             sys.path.insert(0, str(ROOT_DIR))
         from scripts.merge_nllb_lora import merge_nllb
         merge_nllb(args.base_model, args.output_dir, args.merged_dir, args.export_c2_dir)
+
+        if args.export_onnx:
+            print("\n" + "=" * 60)
+            print("📱 Exporting Merged Model to Mobile ONNX INT8...")
+            print("=" * 60)
+            try:
+                from ai_pipeline.export_onnx import export_nllb
+                export_nllb(model_path=args.merged_dir)
+                print("✓ Mobile ONNX INT8 export complete!")
+            except Exception as e:
+                print(f"⚠️ ONNX export note: {e}")
 
     # 12. Evaluate Benchmarks
     if args.eval_benchmarks:

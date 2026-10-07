@@ -3,17 +3,51 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:audioplayers/audioplayers.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'lisan_icons.dart';
+import 'offline_nllb_translator.dart';
+import 'offline_stt_service.dart';
+import 'offline_translation_memory.dart';
 import 'recording_service.dart';
 import 'translator_api.dart';
+
+String computeTtsCacheKey(String lang, String text) {
+  final cleaned = text.trim();
+  final hash = md5.convert(utf8.encode(cleaned)).toString().substring(0, 10);
+  return '${lang}_$hash';
+}
 
 void main() => runApp(
   TranslatorApp(audioCapture: RecordingService(), api: TranslatorApi()),
 );
+
+class NativeTts {
+  static const _channel = MethodChannel('com.example.ethiopian_translator/tts');
+
+  static Future<bool> speak(String text, String lang) async {
+    try {
+      final res = await _channel.invokeMethod<bool>('speak', {
+        'text': text,
+        'lang': lang,
+      });
+      return res ?? false;
+    } catch (e) {
+      debugPrint('[NativeTts] error: $e');
+      return false;
+    }
+  }
+
+  static Future<void> stop() async {
+    try {
+      await _channel.invokeMethod('stop');
+    } catch (_) {}
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // Design System & Visual Tokens (Figma LISAN / MODEL 01)
@@ -146,8 +180,7 @@ class _ConversationPageState extends State<ConversationPage>
     with TickerProviderStateMixin {
   AppView _view = AppView.ready;
   AppLanguage _language = kLanguages[0]; // Amharic
-  AppLanguage _targetLanguage =
-      kLanguages[0]; // Default Ethiopian partner: Amharic
+  AppLanguage _targetLanguage = kLanguages[4]; // Default partner: English
   bool _isEnglishSpeaker = true;
 
   bool _playing = false;
@@ -164,9 +197,14 @@ class _ConversationPageState extends State<ConversationPage>
   String _sourceText = '';
   String _outputText = '';
   final String _audioDurationText = '0:00';
-  bool _isTmMatch = false;
-  bool _isLoading = false;
   String? _recordedFilePath;
+
+  // ---------------------------------------------------------------------------
+  // Offline Services
+  // ---------------------------------------------------------------------------
+  final OfflineSttService _offlineStt = OfflineSttService();
+  final OfflineNllbTranslator _offlineNmt = OfflineNllbTranslator();
+  bool _offlineReady = false;
 
   late final AudioPlayer _audioPlayer;
   late final TextEditingController _serverController;
@@ -186,7 +224,25 @@ class _ConversationPageState extends State<ConversationPage>
       }
     });
 
+    // Fast instant launch: pre-warm NMT tokenizer gently in background AFTER first frame is drawn
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 600), () {
+        if (mounted) _initTokenizerInBackground();
+      });
+    });
+
     _loadPersonaConfigAndPromptIfNeeded();
+  }
+
+  Future<void> _initTokenizerInBackground() async {
+    try {
+      debugPrint('[Offline] Background pre-warming NMT tokenizer...');
+      await _offlineNmt.initializeTokenizer();
+      if (mounted) setState(() => _offlineReady = true);
+      debugPrint('[Offline] NMT tokenizer ready ✓');
+    } catch (e) {
+      debugPrint('[Offline] Tokenizer background init error: $e');
+    }
   }
 
   @override
@@ -194,8 +250,12 @@ class _ConversationPageState extends State<ConversationPage>
     _audioPlayer.dispose();
     _serverController.dispose();
     _playbackTimer?.cancel();
+    _offlineStt.dispose();
+    _offlineNmt.dispose();
+    NativeTts.stop();
     super.dispose();
   }
+
 
   // -------------------------------------------------------------------------
   // Speaker Persona First-Launch Prompt & Persistence
@@ -758,8 +818,11 @@ class _ConversationPageState extends State<ConversationPage>
 
     setState(() {
       _view = AppView.speaking;
-      _isLoading = false;
     });
+
+    // Pipelined: Free NMT from memory and pre-warm STT in parallel while user speaks!
+    _offlineNmt.dispose();
+    _offlineStt.initialize();
 
     try {
       _recordedFilePath = await widget.audioCapture.start();
@@ -856,12 +919,11 @@ class _ConversationPageState extends State<ConversationPage>
     required AppLanguage target,
   }) async {
     setState(() {
-      _isLoading = true;
       _view = AppView.loading;
     });
 
     final audioPath = _recordedFilePath;
-    _recordedFilePath = null; // Reset so next turn requires fresh speech
+    _recordedFilePath = null;
 
     try {
       if (audioPath == null || audioPath.isEmpty) {
@@ -870,74 +932,99 @@ class _ConversationPageState extends State<ConversationPage>
             _sourceText = 'No audio recorded';
             _outputText =
                 'ድምፅ አልተቀረጸም - እባክዎ ማይክራፎኑን ነክተው ይናገሩ (Please tap mic and speak clearly)';
-            _isTmMatch = false;
-            _isLoading = false;
             _view = AppView.result;
           });
         }
         return;
       }
 
-      final apiFuture = widget.api.translateAudio(
-        filePath: audioPath,
-        source:
-            source?.backendKey ??
-            (_smartDetect ? 'auto' : _language.backendKey),
-        target: target.backendKey,
-        speakerMode: _isEnglishSpeaker ? 'english_speaker' : 'ethiopian_only',
-      );
-      // Guarantee minimum animation dwell time so user experiences the aesthetic animation
-      final minAnimationDelay = Future.delayed(
-        const Duration(milliseconds: 1400),
-      );
+      // 1. Offline STT: transcribe audio to text with safety timeout and cleanup
+      String transcribedText = '';
+      try {
+        transcribedText = await _offlineStt
+            .transcribe(audioPath)
+            .timeout(const Duration(seconds: 30));
+      } catch (sttError) {
+        debugPrint('[Offline STT Error/Timeout] $sttError');
+        if (mounted) {
+          setState(() {
+            _sourceText = 'Speech recognition error';
+            _outputText =
+                'ድምፅ መለየት አልተቻለም (Could not process audio: $sttError)';
+            _view = AppView.result;
+          });
+        }
+        return;
+      } finally {
+        // Free STT memory so NMT has full RAM headroom
+        _offlineStt.dispose();
+        // Clean up temporary recorded file
+        try {
+          final f = File(audioPath);
+          if (await f.exists()) await f.delete();
+        } catch (_) {}
+      }
+      debugPrint('[Offline STT] Raw: "$transcribedText"');
 
-      final results = await Future.wait([apiFuture, minAnimationDelay]);
-      final result = results[0] as TranslationResult;
+      if (transcribedText.trim().isEmpty) {
+        if (mounted) {
+          setState(() {
+            _sourceText = 'No speech detected';
+            _outputText =
+                'ድምፅ አልተሰማም - እባክዎ ቀርበው ይናገሩ (No speech heard. Speak closer to the phone mic)';
+            _view = AppView.result;
+          });
+        }
+        return;
+      }
+
+      // Determine effective source language
+      final effectiveSource = source ?? _language;
+
+      // Clean speech recognition artifacts & acoustic degradation across all 5 languages
+      transcribedText = OfflineTranslationMemory.cleanSpokenTranscription(
+        transcribedText,
+        effectiveSource.backendKey,
+      );
+      debugPrint('[Offline STT] Cleaned: "$transcribedText"');
+
+      // 2. Offline NMT: translate
+      final translatedText = await _offlineNmt
+          .translate(
+            transcribedText,
+            sourceLang: effectiveSource.backendKey,
+            targetLang: target.backendKey,
+          )
+          .timeout(const Duration(seconds: 30));
+      debugPrint('[Offline NMT] "$translatedText"');
+      // Free NMT memory to keep memory lean for subsequent voice input
+      _offlineNmt.dispose();
 
       if (mounted) {
-        final src = result.sourceText.trim();
-        final tgt = result.translatedText.trim();
-        final bool hadSpeech = src.isNotEmpty && tgt.isNotEmpty;
-
-        final detectedSource = kLanguages.firstWhere(
-          (l) => l.backendKey == result.sourceLanguage,
-          orElse: () => source ?? _language,
-        );
-        final effectiveTarget = kLanguages.firstWhere(
-          (l) => l.backendKey == result.targetLanguage,
-          orElse: () => target,
-        );
-
         setState(() {
-          _language = detectedSource;
-          _targetLanguage = effectiveTarget;
-          _sourceText = hadSpeech ? src : 'No speech detected';
-          _outputText = hadSpeech
-              ? tgt
-              : 'ድምፅ አልተሰማም - እባክዎ ቀርበው ይናገሩ (No speech heard. Speak closer to the phone mic)';
-          _isTmMatch = result.isTmMatch;
-          _isLoading = false;
+          _language = effectiveSource;
+          _targetLanguage = target;
+          _sourceText = transcribedText.trim();
+          _outputText = translatedText.trim();
           _view = AppView.result;
         });
 
-        if (_autoPlay && hadSpeech) {
+        if (_autoPlay && translatedText.trim().isNotEmpty) {
           _playAudio();
         }
       }
     } catch (e) {
-      debugPrint('Audio translation error: $e');
+      debugPrint('Offline translation error: $e');
       if (mounted) {
         setState(() {
           _sourceText = 'Translation error';
-          _outputText =
-              'Connection error: $e. Ensure FastAPI server is running at http://127.0.0.1:8000';
-          _isTmMatch = false;
-          _isLoading = false;
+          _outputText = 'Offline error: $e';
           _view = AppView.result;
         });
       }
     }
   }
+
 
   Future<void> _executeTextTranslation({
     required String text,
@@ -949,37 +1036,35 @@ class _ConversationPageState extends State<ConversationPage>
     setState(() {
       _language = source;
       _targetLanguage = target;
-      _isLoading = true;
       _view = AppView.result;
     });
 
     try {
-      final result = await widget.api.translateText(
-        text: text.trim(),
-        source: source.backendKey,
-        target: target.backendKey,
+      _offlineStt.dispose();
+      final translatedText = await _offlineNmt.translate(
+        text.trim(),
+        sourceLang: source.backendKey,
+        targetLang: target.backendKey,
       );
+      // NMT session kept warm in memory for rapid subsequent text translations.
+      // Automatically freed if user switches to voice mode in _onDialDown().
 
       if (mounted) {
         setState(() {
-          _sourceText = result.sourceText;
-          _outputText = result.translatedText;
-          _isTmMatch = result.isTmMatch;
-          _isLoading = false;
+          _sourceText = text.trim();
+          _outputText = translatedText.trim();
         });
 
-        if (_autoPlay) {
+        if (_autoPlay && translatedText.trim().isNotEmpty) {
           _playAudio();
         }
       }
     } catch (e) {
-      debugPrint('Text translation error: $e');
+      debugPrint('Offline text translation error: $e');
       if (mounted) {
         setState(() {
           _sourceText = text;
-          _outputText = 'Error: $e. Ensure FastAPI server is running.';
-          _isTmMatch = false;
-          _isLoading = false;
+          _outputText = 'Offline error: $e';
         });
       }
     }
@@ -990,27 +1075,49 @@ class _ConversationPageState extends State<ConversationPage>
     if (text.isEmpty ||
         text.startsWith('ድምፅ አልተሰማም') ||
         text.startsWith('ድምፅ አልተቀረጸም') ||
-        text.startsWith('Connection error') ||
+        text.startsWith('Offline error') ||
         text.startsWith('Error:')) {
       return;
     }
 
-    setState(() {
-      _playing = true;
-    });
-
+    setState(() => _playing = true);
     _playbackTimer?.cancel();
-    _playbackTimer = Timer(const Duration(milliseconds: 4000), () {
-      if (mounted) setState(() => _playing = false);
-    });
 
     try {
-      final bytes = await widget.api.synthesizeSpeech(
-        text,
-        _targetLanguage.backendKey,
-      );
-      await _audioPlayer.stop();
-      await _audioPlayer.play(BytesSource(bytes));
+      final langKey = _targetLanguage.backendKey;
+      final cacheKey = computeTtsCacheKey(langKey, text);
+      final cacheCandidates = [
+        '/sdcard/lisan_models/tts_cache/$cacheKey.wav',
+        '/storage/emulated/0/lisan_models/tts_cache/$cacheKey.wav',
+      ];
+
+      File? matchedFile;
+      for (final p in cacheCandidates) {
+        final f = File(p);
+        if (f.existsSync() && f.lengthSync() > 500) {
+          matchedFile = f;
+          break;
+        }
+      }
+
+      if (matchedFile != null) {
+        debugPrint('[TTS] Playing neural cached MMS-TTS voice: ${matchedFile.path}');
+        await _audioPlayer.stop();
+        await _audioPlayer.play(DeviceFileSource(matchedFile.path));
+        return;
+      }
+
+      debugPrint('[TTS] Cache miss for "$text" ($langKey). Falling back to NativeTts');
+      final spoke = await NativeTts.speak(text, langKey);
+      if (!spoke) {
+        debugPrint('[TTS] NativeTts could not vocalize text.');
+      }
+
+      // Reset playing state after estimated reading time
+      final estimatedMs = (text.length * 80).clamp(2000, 8000);
+      _playbackTimer = Timer(Duration(milliseconds: estimatedMs), () {
+        if (mounted) setState(() => _playing = false);
+      });
     } catch (e) {
       debugPrint('TTS play error: $e');
       if (mounted) setState(() => _playing = false);
@@ -1019,18 +1126,22 @@ class _ConversationPageState extends State<ConversationPage>
 
   void _reset() {
     _audioPlayer.stop();
+    NativeTts.stop();
     _playbackTimer?.cancel();
     setState(() {
       _view = AppView.ready;
       _playing = false;
-      _isLoading = false;
     });
   }
+
 
   void _showTextInputDialog() {
     final textController = TextEditingController();
     AppLanguage selectedSrc = _language;
     AppLanguage selectedTgt = _targetLanguage;
+    if (selectedSrc.code == selectedTgt.code) {
+      selectedTgt = selectedSrc.code == 'EN' ? kLanguages[0] : kLanguages[4];
+    }
 
     showModalBottomSheet(
       context: context,
@@ -1076,6 +1187,7 @@ class _ConversationPageState extends State<ConversationPage>
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<AppLanguage>(
+                          key: ValueKey('src_${selectedSrc.code}'),
                           initialValue: selectedSrc,
                           isExpanded: true,
                           dropdownColor: LisanTheme.wellDeep,
@@ -1110,20 +1222,45 @@ class _ConversationPageState extends State<ConversationPage>
                           }).toList(),
                           onChanged: (val) {
                             if (val != null) {
-                              setSheetState(() => selectedSrc = val);
+                              setSheetState(() {
+                                selectedSrc = val;
+                                if (selectedTgt.code == selectedSrc.code) {
+                                  selectedTgt = selectedSrc.code == 'EN'
+                                      ? kLanguages[0]
+                                      : kLanguages[4];
+                                }
+                              });
                             }
                           },
                         ),
                       ),
                       const SizedBox(width: 6),
-                      const Icon(
-                        Icons.arrow_forward,
-                        color: LisanTheme.muted,
-                        size: 14,
+                      GestureDetector(
+                        onTap: () {
+                          setSheetState(() {
+                            final tmp = selectedSrc;
+                            selectedSrc = selectedTgt;
+                            selectedTgt = tmp;
+                          });
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(7),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF242823),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFF454B3E)),
+                          ),
+                          child: const Icon(
+                            Icons.swap_horiz,
+                            color: LisanTheme.acid,
+                            size: 18,
+                          ),
+                        ),
                       ),
                       const SizedBox(width: 6),
                       Expanded(
                         child: DropdownButtonFormField<AppLanguage>(
+                          key: ValueKey('tgt_${selectedTgt.code}'),
                           initialValue: selectedTgt,
                           isExpanded: true,
                           dropdownColor: LisanTheme.wellDeep,
@@ -1158,7 +1295,14 @@ class _ConversationPageState extends State<ConversationPage>
                           }).toList(),
                           onChanged: (val) {
                             if (val != null) {
-                              setSheetState(() => selectedTgt = val);
+                              setSheetState(() {
+                                selectedTgt = val;
+                                if (selectedSrc.code == selectedTgt.code) {
+                                  selectedSrc = selectedTgt.code == 'EN'
+                                      ? kLanguages[0]
+                                      : kLanguages[4];
+                                }
+                              });
                             }
                           },
                         ),
@@ -1318,7 +1462,7 @@ class _ConversationPageState extends State<ConversationPage>
   Widget _buildTopbar() {
     return Container(
       height: 68,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: Color(0x3831322D))),
         boxShadow: [
@@ -1391,8 +1535,8 @@ class _ConversationPageState extends State<ConversationPage>
                 onTap: _showTextInputDialog,
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 7,
+                    horizontal: 8,
+                    vertical: 6,
                   ),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(7),
@@ -1428,7 +1572,7 @@ class _ConversationPageState extends State<ConversationPage>
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
 
               // Advanced settings button
               GestureDetector(
@@ -1439,8 +1583,8 @@ class _ConversationPageState extends State<ConversationPage>
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 7,
+                    horizontal: 8,
+                    vertical: 6,
                   ),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(7),
@@ -1523,7 +1667,11 @@ class _ConversationPageState extends State<ConversationPage>
               Container(width: 19, height: 2, color: LisanTheme.orange),
               const SizedBox(width: 9),
               Text(
-                isSpeaking ? 'LISTENING NOW' : 'VOICE TRANSLATOR',
+                isSpeaking
+                    ? 'LISTENING NOW'
+                    : (_offlineReady
+                        ? 'OFFLINE · ON-DEVICE AI'
+                        : 'INITIALIZING OFFLINE AI…'),
                 style: const TextStyle(
                   color: Color(0xFF62645C),
                   fontSize: 9.5,
@@ -1656,10 +1804,12 @@ class _ConversationPageState extends State<ConversationPage>
 
           // Orb Centerpiece Stage
           Center(
-            child: _OrbStage(
-              isSpeaking: isSpeaking,
-              onDialDown: _onDialDown,
-              onDialUp: _onDialUp,
+            child: RepaintBoundary(
+              child: _OrbStage(
+                isSpeaking: isSpeaking,
+                onDialDown: _onDialDown,
+                onDialUp: _onDialUp,
+              ),
             ),
           ),
           const SizedBox(height: 14),
@@ -1890,7 +2040,6 @@ class _ConversationPageState extends State<ConversationPage>
         setState(() {
           _targetLanguage = lang;
           _view = AppView.loading;
-          _isLoading = true;
         });
         _executeTranslation(source: null, target: lang);
       },
@@ -2323,7 +2472,11 @@ class _ConversationPageState extends State<ConversationPage>
           const Spacer(),
 
           // Sculptural Minimalist Centerpiece
-          Center(child: LisanAestheticOrb(targetLanguage: _targetLanguage)),
+          Center(
+            child: RepaintBoundary(
+              child: LisanAestheticOrb(targetLanguage: _targetLanguage),
+            ),
+          ),
 
           const Spacer(),
 
@@ -2632,6 +2785,7 @@ class _ConversationPageState extends State<ConversationPage>
                               onTap: () {
                                 if (_playing) {
                                   _audioPlayer.stop();
+                                  NativeTts.stop();
                                   _playbackTimer?.cancel();
                                   setState(() => _playing = false);
                                 } else {
@@ -3627,11 +3781,12 @@ class _OrbStageState extends State<_OrbStage>
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 260,
-      height: 260,
-      child: Stack(
-        alignment: Alignment.center,
+    return RepaintBoundary(
+      child: SizedBox(
+        width: 260,
+        height: 260,
+        child: Stack(
+          alignment: Alignment.center,
         children: [
           // Orbital Conic Bezel Gauge
           Container(
@@ -3831,6 +3986,7 @@ class _OrbStageState extends State<_OrbStage>
           ),
         ],
       ),
+    ),
     );
   }
 }
@@ -3909,42 +4065,44 @@ class _WaveformEqualizerState extends State<WaveformEqualizer>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _waveController,
-      builder: (context, child) {
-        return SizedBox(
-          height: 32,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: List.generate(_baseHeights.length, (i) {
-              final base = _baseHeights[i];
-              double heightFactor = 0.35;
-              if (widget.active) {
-                final phase = (i * 0.38);
-                final wave = math.sin(
-                  _waveController.value * math.pi * 2 + phase,
-                );
-                heightFactor = (base * (0.45 + wave.abs() * 0.55)).clamp(
-                  0.15,
-                  1.0,
-                );
-              }
-              return Container(
-                width: 2.2,
-                height: 32 * heightFactor,
-                margin: const EdgeInsets.symmetric(horizontal: 1.5),
-                decoration: BoxDecoration(
-                  color: widget.color.withValues(
-                    alpha: widget.active ? 0.95 : 0.45,
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _waveController,
+        builder: (context, child) {
+          return SizedBox(
+            height: 32,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: List.generate(_baseHeights.length, (i) {
+                final base = _baseHeights[i];
+                double heightFactor = 0.35;
+                if (widget.active) {
+                  final phase = (i * 0.38);
+                  final wave = math.sin(
+                    _waveController.value * math.pi * 2 + phase,
+                  );
+                  heightFactor = (base * (0.45 + wave.abs() * 0.55)).clamp(
+                    0.15,
+                    1.0,
+                  );
+                }
+                return Container(
+                  width: 2.2,
+                  height: 32 * heightFactor,
+                  margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                  decoration: BoxDecoration(
+                    color: widget.color.withValues(
+                      alpha: widget.active ? 0.95 : 0.45,
+                    ),
+                    borderRadius: BorderRadius.circular(1.1),
                   ),
-                  borderRadius: BorderRadius.circular(1.1),
-                ),
-              );
-            }),
-          ),
-        );
-      },
+                );
+              }),
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -3999,8 +4157,9 @@ class _LisanAestheticOrbState extends State<LisanAestheticOrb>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: Listenable.merge([
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: Listenable.merge([
         _pulseController,
         _orbitController,
         _waveController,
@@ -4200,6 +4359,7 @@ class _LisanAestheticOrbState extends State<LisanAestheticOrb>
           ],
         );
       },
+    ),
     );
   }
 }

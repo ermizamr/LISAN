@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 
@@ -12,8 +13,15 @@ class OfflineNllbTokenizer {
   Future<void> initialize() async {
     if (_vocabulary != null) return;
 
-    final root =
-        jsonDecode(await rootBundle.loadString(_asset)) as Map<String, dynamic>;
+    String jsonString;
+    final externalJson = File('/sdcard/lisan_models/nllb/tokenizer.json');
+    if (await externalJson.exists()) {
+      jsonString = await externalJson.readAsString();
+    } else {
+      jsonString = await rootBundle.loadString(_asset);
+    }
+
+    final root = jsonDecode(jsonString) as Map<String, dynamic>;
     final model = root['model'] as Map<String, dynamic>;
     final rawVocabulary = model['vocab'] as Map<String, dynamic>;
     _vocabulary = rawVocabulary.map((token, id) => MapEntry(token, id as int));
@@ -28,16 +36,21 @@ class OfflineNllbTokenizer {
     final merges = (model['merges'] as List<dynamic>?) ?? const [];
     _mergeRanks = <String, int>{};
     for (var index = 0; index < merges.length; index++) {
-      final merge = merges[index].toString();
-      _mergeRanks![merge] = index;
+      final item = merges[index];
+      if (item is List && item.length >= 2) {
+        _mergeRanks!['${item[0]} ${item[1]}'] = index;
+      } else {
+        _mergeRanks![item.toString()] = index;
+      }
     }
   }
 
   Future<List<int>> encode(String text, String sourceLanguage) async {
     await initialize();
     final sourceId = _vocabulary![sourceLanguage];
-    if (sourceId == null)
+    if (sourceId == null) {
       throw ArgumentError('Unsupported source language: $sourceLanguage');
+    }
 
     final ids = <int>[sourceId];
     final normalized = text.replaceAll(RegExp(r' {2,}'), ' ').trim();
@@ -52,6 +65,10 @@ class OfflineNllbTokenizer {
     return ids;
   }
 
+  /// Returns the vocabulary ID for [token], or null if not found.
+  /// Call after [initialize()] or it will return null.
+  int? tokenToId(String token) => _vocabulary?[token];
+
   Future<String> decode(List<int> ids) async {
     await initialize();
     final text = StringBuffer();
@@ -62,15 +79,15 @@ class OfflineNllbTokenizer {
       if (token.startsWith('[') && token.endsWith(']')) continue;
       text.write(token);
     }
-    return text.toString().replaceAll('▁', ' ').trim();
+    return text.toString().replaceAll('\u2581', ' ').trim();
   }
 
   List<String> _metaspacePieces(String text) {
-    final marked = '▁${text.replaceAll(' ', '▁')}';
+    final marked = '\u2581${text.replaceAll(' ', '\u2581')}';
     final pieces = <String>[];
     var start = 0;
     for (var index = 1; index < marked.length; index++) {
-      if (marked[index] == '▁') {
+      if (marked[index] == '\u2581') {
         pieces.add(marked.substring(start, index));
         start = index;
       }

@@ -1,0 +1,240 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="100%" height="100%" style="background:#181B18; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+  <defs>
+    <!-- Background Gradients -->
+    <radialGradient id="bgGlow" cx="72%" cy="50%" r="55%">
+      <stop offset="0%" stop-color="#F05A36" stop-opacity="0.14" />
+      <stop offset="50%" stop-color="#D89E35" stop-opacity="0.04" />
+      <stop offset="100%" stop-color="#181B18" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="ambientGlow" cx="20%" cy="20%" r="40%">
+      <stop offset="0%" stop-color="#378D68" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#181B18" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#262A25" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#1D201D" stop-opacity="0.98" />
+    </linearGradient>
+    <linearGradient id="buttonGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FF6B45" />
+      <stop offset="100%" stop-color="#B93720" />
+    </linearGradient>
+    <linearGradient id="strokeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#AAA293" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#AAA293" stop-opacity="0.08" />
+    </linearGradient>
+    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#EEE8DA" />
+    </linearGradient>
+    <filter id="subtleShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#000000" flood-opacity="0.5" />
+    </filter>
+    <filter id="buttonGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#F05A36" flood-opacity="0.45" />
+    </filter>
+  </defs>
+
+  <!-- Ambient atmospheric glow -->
+  <rect width="1600" height="900" fill="#181B18" />
+  <rect width="1600" height="900" fill="url(#bgGlow)" />
+  <rect width="1600" height="900" fill="url(#ambientGlow)" />
+
+  <!-- Subtle Precision Grid Pattern -->
+  <g opacity="0.07" stroke="#AAA293" stroke-width="1">
+    <line x1="80" y1="0" x2="80" y2="900" />
+    <line x1="400" y1="0" x2="400" y2="900" />
+    <line x1="800" y1="0" x2="800" y2="900" />
+    <line x1="1200" y1="0" x2="1200" y2="900" />
+    <line x1="1520" y1="0" x2="1520" y2="900" />
+    <line x1="0" y1="120" x2="1600" y2="120" />
+    <line x1="0" y1="450" x2="1600" y2="450" />
+    <line x1="0" y1="780" x2="1600" y2="780" />
+  </g>
+
+  <!-- LEFT COLUMN: Brand Identity & Narrative -->
+  <g transform="translate(120, 140)">
+    <!-- Top Meta Tag / Pill -->
+    <g transform="translate(0, 0)">
+      <rect width="320" height="38" rx="19" fill="#252924" stroke="#AAA293" stroke-width="1" stroke-opacity="0.3" />
+      <circle cx="20" cy="19" r="5" fill="#F05A36" />
+      <text x="36" y="24" fill="#D8F171" font-size="13" font-weight="700" letter-spacing="1.5">OFFLINE-FIRST ON-DEVICE AI</text>
+    </g>
+
+    <!-- Main Title: LISAN ልሳን -->
+    <g transform="translate(0, 95)">
+      <text x="0" y="55" fill="url(#textGrad)" font-size="78" font-weight="800" letter-spacing="-1.5">LISAN <tspan fill="#F05A36" font-weight="700">ልሳን</tspan></text>
+      <text x="4" y="90" fill="#AAA293" font-size="14" font-weight="600" letter-spacing="3.5">MODEL 01 • ETHIOPIAN VOICE AI</text>
+    </g>
+
+    <!-- Tagline: Speak freely. Be understood. -->
+    <g transform="translate(0, 240)">
+      <text x="0" y="52" fill="#FFFFFF" font-size="54" font-weight="800" letter-spacing="-1">Speak freely.</text>
+      <text x="0" y="112" fill="#F05A36" font-family="'Georgia', serif" font-style="italic" font-size="58" font-weight="500">Be understood.</text>
+    </g>
+
+    <!-- Value Proposition Description -->
+    <g transform="translate(0, 395)">
+      <text x="0" y="24" fill="#DDD5C3" font-size="20" font-weight="400" line-height="30">
+        <tspan x="0" dy="0">Instant real-time speech translation across</tspan>
+        <tspan x="0" dy="32">the languages of Ethiopia and the Horn of Africa.</tspan>
+        <tspan x="0" dy="32" fill="#AAA293" font-size="17">Zero cloud latency • 100% private • Works anywhere without internet.</tspan>
+      </text>
+    </g>
+
+    <!-- Language Matrix Pills -->
+    <g transform="translate(0, 530)">
+      <!-- Amharic -->
+      <g transform="translate(0, 0)">
+        <rect width="138" height="42" rx="10" fill="#252924" stroke="#DF5942" stroke-width="1.5" stroke-opacity="0.8" />
+        <circle cx="20" cy="21" r="4" fill="#DF5942" />
+        <text x="32" y="26" fill="#FFFFFF" font-size="14" font-weight="600">አማርኛ <tspan fill="#AAA293" font-size="11">AM</tspan></text>
+      </g>
+      <!-- Afaan Oromo -->
+      <g transform="translate(148, 0)">
+        <rect width="170" height="42" rx="10" fill="#252924" stroke="#378D68" stroke-width="1.5" stroke-opacity="0.8" />
+        <circle cx="20" cy="21" r="4" fill="#378D68" />
+        <text x="32" y="26" fill="#FFFFFF" font-size="14" font-weight="600">Afaan Oromoo <tspan fill="#AAA293" font-size="11">OR</tspan></text>
+      </g>
+      <!-- Tigrinya -->
+      <g transform="translate(328, 0)">
+        <rect width="138" height="42" rx="10" fill="#252924" stroke="#D89E35" stroke-width="1.5" stroke-opacity="0.8" />
+        <circle cx="20" cy="21" r="4" fill="#D89E35" />
+        <text x="32" y="26" fill="#FFFFFF" font-size="14" font-weight="600">ትግርኛ <tspan fill="#AAA293" font-size="11">TI</tspan></text>
+      </g>
+      <!-- Somali -->
+      <g transform="translate(476, 0)">
+        <rect width="142" height="42" rx="10" fill="#252924" stroke="#3E6F9B" stroke-width="1.5" stroke-opacity="0.8" />
+        <circle cx="20" cy="21" r="4" fill="#3E6F9B" />
+        <text x="32" y="26" fill="#FFFFFF" font-size="14" font-weight="600">Soomaali <tspan fill="#AAA293" font-size="11">SO</tspan></text>
+      </g>
+    </g>
+
+    <!-- Technical Badges Footer -->
+    <g transform="translate(0, 620)">
+      <text x="0" y="20" fill="#6C6D65" font-size="13" font-weight="700" letter-spacing="1.5">CORE ARCHITECTURE</text>
+      <text x="0" y="44" fill="#AAA293" font-size="15" font-weight="500">
+        <tspan fill="#DDD5C3">Whisper STT</tspan> (0.41s)  •  <tspan fill="#DDD5C3">NLLB-200 Distilled</tspan>  •  <tspan fill="#DDD5C3">On-Device INT8 ONNX</tspan>  •  <tspan fill="#DDD5C3">Flutter Native</tspan>
+      </text>
+    </g>
+  </g>
+
+  <!-- RIGHT COLUMN: Tactile Device Interface & Acoustic Waveforms -->
+  <g transform="translate(1080, 450)">
+    <!-- Concentric Acoustic Resonant Waves -->
+    <g opacity="0.35">
+      <circle cx="0" cy="0" r="140" fill="none" stroke="#F05A36" stroke-width="1" stroke-dasharray="4 6" />
+      <circle cx="0" cy="0" r="210" fill="none" stroke="#F05A36" stroke-width="1.2" opacity="0.7" />
+      <circle cx="0" cy="0" r="280" fill="none" stroke="#AAA293" stroke-width="1" stroke-opacity="0.4" stroke-dasharray="8 8" />
+      <circle cx="0" cy="0" r="350" fill="none" stroke="#F05A36" stroke-width="1" opacity="0.3" />
+    </g>
+
+    <!-- Subtle Ge'ez Character Constellation Ring -->
+    <g fill="#D89E35" font-size="18" font-family="'Nyala', 'Abyssinica SIL', serif" opacity="0.6">
+      <text x="0" y="-310" text-anchor="middle">ል</text>
+      <text x="215" y="-220" text-anchor="middle">ሳ</text>
+      <text x="310" y="0" text-anchor="middle">ን</text>
+      <text x="220" y="220" text-anchor="middle">ሰ</text>
+      <text x="0" y="325" text-anchor="middle">ላ</text>
+      <text x="-220" y="220" text-anchor="middle">ም</text>
+      <text x="-310" y="0" text-anchor="middle">ቃ</text>
+      <text x="-215" y="-220" text-anchor="middle">ል</text>
+    </g>
+
+    <!-- Flagship Mobile Device Frame -->
+    <g transform="translate(-180, -320)" filter="url(#subtleShadow)">
+      <!-- Outer Phone Shell -->
+      <rect width="360" height="640" rx="46" fill="#1C1F1C" stroke="url(#strokeGrad)" stroke-width="3" />
+      
+      <!-- Inner Screen Area -->
+      <rect x="12" y="12" width="336" height="616" rx="36" fill="#EEE8DA" />
+      
+      <!-- Status Bar & Dynamic Island -->
+      <rect x="124" y="22" width="88" height="24" rx="12" fill="#1C1F1C" />
+      <text x="44" y="38" fill="#20221F" font-size="12" font-weight="700">9:41</text>
+      <circle cx="304" cy="34" r="3" fill="#20221F" />
+      <path d="M285 30 h10 v8 h-10 Z" fill="none" stroke="#20221F" stroke-width="1.5" rx="2" />
+
+      <!-- App Header -->
+      <g transform="translate(32, 70)">
+        <!-- App Logo Mark -->
+        <circle cx="16" cy="16" r="16" fill="#20221F" />
+        <path d="M16 8 L18 13 L23 15 L18 17 L16 22 L14 17 L9 15 L14 13 Z" fill="#D8F171" />
+        <text x="42" y="22" fill="#20221F" font-size="18" font-weight="800">Lisan</text>
+        
+        <!-- Header Mode Tag -->
+        <rect x="190" y="2" width="80" height="28" rx="8" fill="#DDD5C3" />
+        <text x="230" y="20" text-anchor="middle" fill="#20221F" font-size="11" font-weight="700">MODEL 01</text>
+      </g>
+
+      <!-- App Hero Copy -->
+      <g transform="translate(32, 140)">
+        <text x="0" y="12" fill="#B93720" font-size="10" font-weight="800" letter-spacing="2">VOICE TRANSLATOR</text>
+        <text x="0" y="44" fill="#20221F" font-size="30" font-weight="800" letter-spacing="-0.5">Speak freely.</text>
+        <text x="0" y="80" fill="#F05A36" font-family="'Georgia', serif" font-style="italic" font-size="34">Be understood.</text>
+      </g>
+
+      <!-- Active Language Switcher Capsule -->
+      <g transform="translate(32, 250)">
+        <rect width="272" height="46" rx="23" fill="#252924" />
+        <!-- Auto Detect Pill -->
+        <rect x="4" y="4" width="118" height="38" rx="19" fill="#363C35" />
+        <circle cx="20" cy="23" r="4" fill="#D8F171" />
+        <text x="32" y="28" fill="#FFFFFF" font-size="11" font-weight="700">AUTO-DETECT</text>
+        
+        <!-- Target Language -->
+        <text x="140" y="28" fill="#AAA293" font-size="12">To: <tspan fill="#FFFFFF" font-weight="700">English (EN)</tspan></text>
+      </g>
+
+      <!-- Tactile Speaker Button / Acoustic Centerpiece -->
+      <g transform="translate(168, 430)">
+        <!-- Ripple Rings -->
+        <circle cx="0" cy="0" r="85" fill="none" stroke="#DDD5C3" stroke-width="2" />
+        <circle cx="0" cy="0" r="70" fill="none" stroke="#DDD5C3" stroke-width="2.5" />
+        <circle cx="0" cy="0" r="56" fill="none" stroke="#BDB5A4" stroke-width="3" />
+        
+        <!-- Tactile Outer Bezel -->
+        <circle cx="0" cy="0" r="46" fill="#252924" filter="url(#buttonGlow)" />
+        
+        <!-- Convex Vermilion Primary Button -->
+        <circle cx="0" cy="0" r="40" fill="url(#buttonGrad)" />
+        
+        <!-- Microphone Symbol -->
+        <g transform="translate(-12, -14)" fill="#FFFFFF">
+          <rect x="6" y="2" width="12" height="15" rx="6" />
+          <path d="M2 11 A10 10 0 0 0 22 11" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" />
+          <line x1="12" y1="21" x2="12" y2="26" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" />
+        </g>
+
+        <!-- Tap or Hold to Speak Caption -->
+        <text x="0" y="72" text-anchor="middle" fill="#6C6D65" font-size="10" font-weight="700" letter-spacing="1.5">TAP OR HOLD TO SPEAK</text>
+      </g>
+
+      <!-- Bottom Audio Wave Indicator -->
+      <g transform="translate(56, 565)" stroke="#F05A36" stroke-width="2.5" stroke-linecap="round">
+        <line x1="0" y1="10" x2="0" y2="20" opacity="0.4" />
+        <line x1="12" y1="6" x2="12" y2="24" opacity="0.6" />
+        <line x1="24" y1="2" x2="24" y2="28" opacity="0.8" />
+        <line x1="36" y1="8" x2="36" y2="22" opacity="0.9" />
+        <line x1="48" y1="0" x2="48" y2="30" />
+        <line x1="60" y1="4" x2="60" y2="26" opacity="0.9" />
+        <line x1="72" y1="12" x2="72" y2="18" opacity="0.5" />
+        <line x1="84" y1="6" x2="84" y2="24" opacity="0.8" />
+        <line x1="96" y1="0" x2="96" y2="30" />
+        <line x1="108" y1="8" x2="108" y2="22" opacity="0.7" />
+        <line x1="120" y1="12" x2="120" y2="18" opacity="0.4" />
+        <line x1="132" y1="2" x2="132" y2="28" opacity="0.9" />
+        <line x1="144" y1="6" x2="144" y2="24" opacity="0.8" />
+        <line x1="156" y1="10" x2="156" y2="20" opacity="0.5" />
+        <line x1="168" y1="12" x2="168" y2="18" opacity="0.3" />
+        <line x1="180" y1="4" x2="180" y2="26" opacity="0.8" />
+        <line x1="192" y1="8" x2="192" y2="22" opacity="0.6" />
+        <line x1="204" y1="12" x2="204" y2="18" opacity="0.4" />
+        <line x1="216" y1="14" x2="216" y2="16" opacity="0.2" />
+        <line x1="228" y1="14" x2="228" y2="16" opacity="0.2" />
+      </g>
+
+      <!-- Home Indicator Bar -->
+      <rect x="110" y="604" width="116" height="4" rx="2" fill="#20221F" opacity="0.7" />
+    </g>
+  </g>
+</svg>

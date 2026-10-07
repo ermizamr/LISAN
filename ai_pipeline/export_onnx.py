@@ -66,8 +66,8 @@ def _ethio_ctc_onnx_config(model_id: str):
     return EthioCTCOnnxConfig(config, task="automatic-speech-recognition")
 
 
-def export_nllb():
-    """Export NLLB-200-distilled-600M to ONNX INT8."""
+def export_nllb(model_path: str | None = None):
+    """Export NLLB-200 (base or custom fine-tuned) to ONNX INT8."""
     from optimum.onnxruntime import ORTModelForSeq2SeqLM
     from transformers import AutoTokenizer
     from optimum.onnxruntime.configuration import AutoQuantizationConfig
@@ -79,7 +79,24 @@ def export_nllb():
     console.print(Panel("[cyan]Exporting NLLB-200 → ONNX float32...[/cyan]"))
     t0 = time.time()
 
-    model_id, local_files_only = _cached_snapshot("facebook/nllb-200-distilled-600M")
+    merged_candidate = OUTPUT_DIR.parent / "models_optimized" / "nllb_merged"
+    ethio_candidate = OUTPUT_DIR.parent / "models_optimized" / "nllb_ethio_finetuned"
+
+    if model_path and Path(model_path).exists():
+        model_id = str(model_path)
+        local_files_only = True
+        console.print(f"[green]  Using specified fine-tuned model: {model_id}[/green]")
+    elif merged_candidate.exists() and (merged_candidate / "config.json").exists():
+        model_id = str(merged_candidate)
+        local_files_only = True
+        console.print(f"[green]  Found fine-tuned merged model: {model_id}[/green]")
+    elif ethio_candidate.exists() and (ethio_candidate / "config.json").exists():
+        model_id = str(ethio_candidate)
+        local_files_only = True
+        console.print(f"[green]  Found fine-tuned model: {model_id}[/green]")
+    else:
+        model_id, local_files_only = _cached_snapshot("facebook/nllb-200-distilled-600M")
+        console.print(f"[cyan]  Using base model snapshot: {model_id}[/cyan]")
 
     # Export to ONNX (float32 first)
     console.print("  Step 1/2: Export to ONNX...")
@@ -141,6 +158,8 @@ def export_ethio_stt():
     t1 = time.time()
 
     qconfig = AutoQuantizationConfig.arm64(is_static=False, per_channel=False)
+    # Exclude Conv from quantization to prevent unsupported ConvInteger nodes on Android mobile CPU
+    qconfig.operators_to_quantize = [op for op in qconfig.operators_to_quantize if op != "Conv"]
     for onnx_file in out.glob("*.onnx"):
         quantizer = ORTQuantizer.from_pretrained(str(out), file_name=onnx_file.name)
         quantizer.quantize(
@@ -193,22 +212,27 @@ def verify_nllb_onnx():
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Export Ethiopian Translator models to ONNX INT8")
+    parser.add_argument("mode", nargs="?", default="all", choices=["all", "nllb", "stt", "verify"],
+                        help="Export mode (default: all)")
+    parser.add_argument("--model_path", type=str, default=None,
+                        help="Optional path to custom fine-tuned NLLB checkpoint directory")
+    args = parser.parse_args()
+
     console.print(Panel(
         "[bold yellow]Ethiopian Translator — ONNX Export[/bold yellow]\n"
         "[dim]Produces INT8 quantized models for Android on-device inference[/dim]",
         expand=False
     ))
 
-    import sys
-    mode = sys.argv[1] if len(sys.argv) > 1 else "all"
+    if args.mode in ("all", "nllb"):
+        export_nllb(model_path=args.model_path)
 
-    if mode in ("all", "nllb"):
-        export_nllb()
-
-    if mode in ("all", "stt"):
+    if args.mode in ("all", "stt"):
         export_ethio_stt()
 
-    if mode == "verify":
+    if args.mode == "verify":
         verify_nllb_onnx()
 
     console.print(Panel(
