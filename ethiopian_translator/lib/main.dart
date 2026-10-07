@@ -926,9 +926,12 @@ class _ConversationPageState extends State<ConversationPage>
       });
       await _executeTranslation(source: null, target: target);
     } else {
-      // Normal Voice Mode: Automatically recognise the spoken language and translate directly!
+      // Normal Voice Mode: Prompt speaker to choose target language (while spoken language is auto-detected!)
       if (_recordedFilePath != null && _recordedFilePath!.isNotEmpty) {
-        await _executeTranslation(source: null, target: _targetLanguage);
+        setState(() {
+          _view = AppView.ready;
+        });
+        _showTranslateToPrompt();
       } else {
         setState(() {
           _view = AppView.ready;
@@ -1019,7 +1022,7 @@ class _ConversationPageState extends State<ConversationPage>
       }
 
       // -----------------------------------------------------------------------
-      // Automatic Spoken Language Recognition (LID) & Smart Counterpart Routing
+      // Automatic Spoken Language Recognition (LID) & Speaker's Chosen Target
       // -----------------------------------------------------------------------
       AppLanguage effectiveSource;
       AppLanguage effectiveTarget;
@@ -1035,26 +1038,19 @@ class _ConversationPageState extends State<ConversationPage>
           orElse: () => source ?? _language,
         );
 
-        // Intelligently route the translation to the counterpart language
-        if (effectiveSource.backendKey == _targetLanguage.backendKey) {
-          // If speaker spoke in the target language, response routes to source
-          effectiveTarget = _language;
-        } else if (effectiveSource.backendKey == _language.backendKey) {
-          // If speaker spoke in source language, response routes to target
-          effectiveTarget = _targetLanguage;
-        } else {
-          // A different language was spoken:
-          // If English spoken -> translate to active partner
-          // If Ethiopian language spoken -> translate to English (or active partner)
-          effectiveTarget = (effectiveSource.backendKey == 'eng')
+        // Respect the target language chosen by the speaker
+        if (effectiveSource.backendKey == target.backendKey) {
+          // If speaker chose the same language that was spoken, route to counterpart
+          effectiveTarget = (effectiveSource.backendKey == _language.backendKey)
               ? _targetLanguage
-              : (_isEnglishSpeaker ? kLanguages[4] : _targetLanguage);
-
+              : _language;
           if (effectiveTarget.backendKey == effectiveSource.backendKey) {
             effectiveTarget = (effectiveSource.backendKey == 'eng')
                 ? kLanguages[0]
                 : kLanguages[4];
           }
+        } else {
+          effectiveTarget = target;
         }
       } else {
         effectiveSource = source;
@@ -2082,7 +2078,7 @@ class _ConversationPageState extends State<ConversationPage>
           ),
           const SizedBox(height: 3),
           const Text(
-            'Tap a language to translate and synthesize voice',
+            'Spoken language is auto-detected · Tap target language to translate',
             style: TextStyle(color: Color(0xFF74746C), fontSize: 8.8),
           ),
           const SizedBox(height: 12),
