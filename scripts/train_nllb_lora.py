@@ -351,8 +351,11 @@ def main():
     # Attach prepare_decoder_input_ids_from_labels to model objects
     from transformers.models.m2m_100.modeling_m2m_100 import shift_tokens_right
 
-    def _prep_decoder_ids(self, labels):
-        cfg = getattr(self, "config", None) or getattr(getattr(self, "base_model", None), "config", None)
+    def _prep_decoder_ids(*args, **kwargs):
+        labels = kwargs.get("labels")
+        if labels is None and len(args) > 0:
+            labels = args[-1]
+        cfg = getattr(model, "config", None) or getattr(getattr(model, "base_model", None), "config", None)
         pad_id = getattr(cfg, "pad_token_id", tokenizer.pad_token_id)
         start_id = getattr(cfg, "decoder_start_token_id", getattr(tokenizer, "eos_token_id", 2))
         return shift_tokens_right(labels, pad_id, start_id)
