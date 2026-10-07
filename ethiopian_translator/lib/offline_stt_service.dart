@@ -153,18 +153,27 @@ class OfflineSttService {
         return '';
       }
       final bytes = await wavFile.readAsBytes();
-      final samples = _readWavPcm16(bytes);
-      if (samples.isEmpty) {
+      final featureMatrix = await compute(
+        _extractSttFeaturesInIsolate,
+        _SttExtractionJob(
+          bytes: bytes,
+          melFilters: _melFilters!,
+          window: _window!,
+        ),
+      );
+      if (featureMatrix.frames == 0) {
         debugPrint('[Offline STT] Audio samples are empty');
         return '';
       }
 
-      final features = _extractFeatures(samples);
-      final tensor = OrtValueTensor.createTensorWithDataList(features.values, [
-        1,
-        features.frames,
-        _melBins * 2,
-      ]);
+      final tensor = OrtValueTensor.createTensorWithDataList(
+        featureMatrix.values,
+        [
+          1,
+          featureMatrix.frames,
+          _melBins * 2,
+        ],
+      );
       final runOptions = OrtRunOptions();
       List<OrtValue?>? outputs;
       try {
@@ -191,7 +200,7 @@ class OfflineSttService {
     }
   }
 
-  List<double> _readWavPcm16(Uint8List bytes) {
+  static List<double> readWavPcm16(Uint8List bytes) {
     if (bytes.length < 44 ||
         _ascii(bytes, 0, 4) != 'RIFF' ||
         _ascii(bytes, 8, 4) != 'WAVE') {
@@ -238,11 +247,13 @@ class OfflineSttService {
     return samples;
   }
 
-  _FeatureMatrix _extractFeatures(List<double> samples) {
+  static _FeatureMatrix extractFeatures(
+    List<double> samples, {
+    required Float32List melFilters,
+    required Float32List window,
+  }) {
     final numFrames =
         1 + math.max(0, samples.length - _frameLength) ~/ _hopLength;
-    final melFilters = _melFilters!;
-    final window = _window!;
 
     // Shape: [numFrames * 80]
     final fbank = Float32List(numFrames * _melBins);
@@ -335,7 +346,7 @@ class OfflineSttService {
     return _FeatureMatrix(features, outputFrames);
   }
 
-  Float64List _powerSpectrum(Float64List signal) {
+  static Float64List _powerSpectrum(Float64List signal) {
     final real = Float64List(512);
     final imag = Float64List(512);
 
@@ -401,19 +412,19 @@ class OfflineSttService {
     return output.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  String _ascii(Uint8List bytes, int start, int length) =>
+  static String _ascii(Uint8List bytes, int start, int length) =>
       String.fromCharCodes(bytes.sublist(start, start + length));
 
-  int _u16(Uint8List bytes, int offset) =>
+  static int _u16(Uint8List bytes, int offset) =>
       bytes[offset] | (bytes[offset + 1] << 8);
 
-  int _u32(Uint8List bytes, int offset) =>
+  static int _u32(Uint8List bytes, int offset) =>
       bytes[offset] |
       (bytes[offset + 1] << 8) |
       (bytes[offset + 2] << 16) |
       (bytes[offset + 3] << 24);
 
-  int _i16(Uint8List bytes, int offset) {
+  static int _i16(Uint8List bytes, int offset) {
     final value = _u16(bytes, offset);
     return value >= 0x8000 ? value - 0x10000 : value;
   }
@@ -422,6 +433,30 @@ class OfflineSttService {
     _session?.release();
     _session = null;
   }
+}
+
+class _SttExtractionJob {
+  final Uint8List bytes;
+  final Float32List melFilters;
+  final Float32List window;
+
+  const _SttExtractionJob({
+    required this.bytes,
+    required this.melFilters,
+    required this.window,
+  });
+}
+
+_FeatureMatrix _extractSttFeaturesInIsolate(_SttExtractionJob job) {
+  final samples = OfflineSttService.readWavPcm16(job.bytes);
+  if (samples.isEmpty) {
+    return _FeatureMatrix(Float32List(0), 0);
+  }
+  return OfflineSttService.extractFeatures(
+    samples,
+    melFilters: job.melFilters,
+    window: job.window,
+  );
 }
 
 class _FeatureMatrix {

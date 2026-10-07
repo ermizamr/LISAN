@@ -176,40 +176,45 @@ class OfflineNllbTranslator {
     // NLLB generation starts with [2 (</s>), targetLangId]
     final currIds = <int>[_eosTokenId, targetLangId];
 
-    for (var step = 0; step < _maxNewTokens; step++) {
-      final decoderInputIds = _int64Tensor(currIds, [1, currIds.length]);
+    final runOptions = OrtRunOptions();
+    try {
+      for (var step = 0; step < _maxNewTokens; step++) {
+        final decoderInputIds = _int64Tensor(currIds, [1, currIds.length]);
 
-      final stepOutputs = await _decoderSession!.runAsync(
-        OrtRunOptions(),
-        {
-          'input_ids': decoderInputIds,
-          'encoder_attention_mask': attentionMask,
-          'encoder_hidden_states': encoderHiddenStates!,
-        },
-      );
-      decoderInputIds.release();
+        final stepOutputs = await _decoderSession!.runAsync(
+          runOptions,
+          {
+            'input_ids': decoderInputIds,
+            'encoder_attention_mask': attentionMask,
+            'encoder_hidden_states': encoderHiddenStates!,
+          },
+        );
+        decoderInputIds.release();
 
-      if (stepOutputs == null || stepOutputs.isEmpty) break;
+        if (stepOutputs == null || stepOutputs.isEmpty) break;
 
-      final logitsTensor = stepOutputs.first;
-      // Release any past KV outputs to avoid native memory buildup
-      for (var i = 1; i < stepOutputs.length; i++) {
-        stepOutputs[i]?.release();
+        final logitsTensor = stepOutputs.first;
+        // Release any past KV outputs to avoid native memory buildup
+        for (var i = 1; i < stepOutputs.length; i++) {
+          stepOutputs[i]?.release();
+        }
+
+        final logits = logitsTensor?.value;
+        logitsTensor?.release();
+
+        final nextTokenId = _argmax(
+          logits,
+          currIds.length - 1,
+          generatedIds: currIds,
+        );
+        currIds.add(nextTokenId);
+
+        if (nextTokenId == _eosTokenId || nextTokenId == _padTokenId) {
+          break;
+        }
       }
-
-      final logits = logitsTensor?.value;
-      logitsTensor?.release();
-
-      final nextTokenId = _argmax(
-        logits,
-        currIds.length - 1,
-        generatedIds: currIds,
-      );
-      currIds.add(nextTokenId);
-
-      if (nextTokenId == _eosTokenId || nextTokenId == _padTokenId) {
-        break;
-      }
+    } finally {
+      runOptions.release();
     }
 
     // Cleanup encoder tensors

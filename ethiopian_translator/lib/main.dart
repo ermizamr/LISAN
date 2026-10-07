@@ -257,6 +257,26 @@ class _ConversationPageState extends State<ConversationPage>
       await _offlineNmt.initializeTokenizer();
       if (mounted) setState(() => _offlineReady = true);
       debugPrint('[Offline] NMT tokenizer ready ✓');
+
+      // Pre-warm STT and NMT neural inference sessions in the background
+      // so neither triggers disk I/O or memory allocation pauses during translation
+      Future.delayed(const Duration(milliseconds: 300), () async {
+        try {
+          debugPrint('[Offline] Pre-warming STT session in background...');
+          await _offlineStt.initialize();
+          debugPrint('[Offline] STT session ready ✓');
+        } catch (e) {
+          debugPrint('[Offline] STT pre-warm note: $e');
+        }
+
+        try {
+          debugPrint('[Offline] Pre-warming NMT sessions in background...');
+          await _offlineNmt.initialize();
+          debugPrint('[Offline] NMT sessions ready ✓');
+        } catch (e) {
+          debugPrint('[Offline] NMT pre-warm note: $e');
+        }
+      });
     } catch (e) {
       debugPrint('[Offline] Tokenizer background init error: $e');
     }
@@ -1946,8 +1966,8 @@ class _ConversationPageState extends State<ConversationPage>
   // -------------------------------------------------------------------------
   // Post-Recording "Translate To" Aesthetic Prompt (Referenced from Settings Section 01)
   // -------------------------------------------------------------------------
-  void _showTranslateToPrompt() {
-    showModalBottomSheet(
+  Future<void> _showTranslateToPrompt() async {
+    final chosen = await showModalBottomSheet<AppLanguage>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -1991,11 +2011,7 @@ class _ConversationPageState extends State<ConversationPage>
                   ),
                   const Spacer(),
                   GestureDetector(
-                    onTap: () {
-                      Navigator.of(sheetCtx).pop();
-                      _cleanupPendingRecording();
-                      if (mounted) setState(() => _view = AppView.ready);
-                    },
+                    onTap: () => Navigator.of(sheetCtx).pop(null),
                     child: Container(
                       width: 26,
                       height: 26,
@@ -2045,11 +2061,26 @@ class _ConversationPageState extends State<ConversationPage>
           ),
         );
       },
-    ).then((_) {
-      if (mounted && _view != AppView.loading && _view != AppView.result) {
-        _cleanupPendingRecording();
+    );
+
+    if (!mounted) return;
+
+    if (chosen != null) {
+      setState(() {
+        _targetLanguage = chosen;
+        _view = AppView.loading;
+      });
+      // Yield to allow the loading frame to paint cleanly before running translation
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted) {
+        await _executeTranslation(source: null, target: chosen);
       }
-    });
+    } else {
+      _cleanupPendingRecording();
+      if (mounted && _view != AppView.result) {
+        setState(() => _view = AppView.ready);
+      }
+    }
   }
 
   void _cleanupPendingRecording() {
@@ -2175,12 +2206,10 @@ class _ConversationPageState extends State<ConversationPage>
     final isSelected = _targetLanguage.code == lang.code;
     return GestureDetector(
       onTap: () {
-        Navigator.of(sheetCtx).pop();
-        setState(() {
-          _targetLanguage = lang;
-          _view = AppView.loading;
-        });
-        _executeTranslation(source: null, target: lang);
+        if (_haptics) {
+          HapticFeedback.lightImpact();
+        }
+        Navigator.of(sheetCtx).pop(lang);
       },
       child: Container(
         height: 44,
