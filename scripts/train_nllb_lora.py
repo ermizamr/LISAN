@@ -310,7 +310,7 @@ def main():
     )
 
     if cuda_avail and args.use_4bit:
-        model = prepare_model_for_kbit_training(model)
+        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=False)
 
     # Neutralize transformers / peft Seq2Seq kwargs rename compatibility bug
     for target_obj in (model, model.__class__):
@@ -320,6 +320,20 @@ def main():
                 setattr(target_obj, "_prepare_encoder_decoder_kwargs_for_generation", alt_fn)
             else:
                 setattr(target_obj, "_prepare_encoder_decoder_kwargs_for_generation", lambda *a, **k: {})
+
+    # Ensure M2M100Decoder handles collision gracefully
+    try:
+        from transformers.models.m2m_100.modeling_m2m_100 import M2M100Decoder
+        _orig_m2m_dec_forward = M2M100Decoder.forward
+
+        def _safe_m2m_dec_forward(self, input_ids=None, *a, **k):
+            if input_ids is not None and k.get("inputs_embeds") is not None:
+                k["inputs_embeds"] = None
+            return _orig_m2m_dec_forward(self, input_ids=input_ids, *a, **k)
+
+        M2M100Decoder.forward = _safe_m2m_dec_forward
+    except Exception:
+        pass
 
     # 6. LoRA Adapter Config
     print(f"Initializing LoRA adapter (rank={args.lora_r}, alpha={args.lora_alpha})...")
@@ -334,8 +348,33 @@ def main():
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
-    # 7. Collator
-    data_collator = DataCollatorForSeq2Seq(
+    # Attach prepare_decoder_input_ids_from_labels to model objects
+    from transformers.models.m2m_100.modeling_m2m_100 import shift_tokens_right
+
+    def _prep_decoder_ids(self, labels):
+        cfg = getattr(self, "config", None) or getattr(getattr(self, "base_model", None), "config", None)
+        pad_id = getattr(cfg, "pad_token_id", tokenizer.pad_token_id)
+        start_id = getattr(cfg, "decoder_start_token_id", getattr(tokenizer, "eos_token_id", 2))
+        return shift_tokens_right(labels, pad_id, start_id)
+
+    for target_obj in (model, model.__class__, getattr(model, "base_model", None)):
+        if target_obj is not None:
+            setattr(target_obj, "prepare_decoder_input_ids_from_labels", _prep_decoder_ids)
+
+    # 7. Robust Collator
+    # Guarantees that decoder_input_ids is always generated and present in the batch,
+    # even when labels are popped by Seq2SeqTrainer for label smoothing.
+    class RobustSeq2SeqCollator(DataCollatorForSeq2Seq):
+        def __call__(self, features, return_tensors=None):
+            batch = super().__call__(features, return_tensors=return_tensors)
+            if "labels" in batch and "decoder_input_ids" not in batch:
+                cfg = getattr(self.model, "config", None) or getattr(getattr(self.model, "base_model", None), "config", None)
+                pad_id = getattr(cfg, "pad_token_id", self.tokenizer.pad_token_id)
+                start_id = getattr(cfg, "decoder_start_token_id", getattr(self.tokenizer, "eos_token_id", 2))
+                batch["decoder_input_ids"] = shift_tokens_right(batch["labels"], pad_id, start_id)
+            return batch
+
+    data_collator = RobustSeq2SeqCollator(
         tokenizer=tokenizer,
         model=model,
         padding=True,
