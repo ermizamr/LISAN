@@ -140,10 +140,16 @@ enum AppView { ready, speaking, language, loading, result, settings }
 // Root Application
 // ---------------------------------------------------------------------------
 class TranslatorApp extends StatelessWidget {
-  const TranslatorApp({super.key, this.audioCapture, this.api});
+  const TranslatorApp({
+    super.key,
+    this.audioCapture,
+    this.api,
+    this.minHoldDuration = const Duration(milliseconds: 350),
+  });
 
   final AudioCapture? audioCapture;
   final TranslatorApi? api;
+  final Duration minHoldDuration;
 
   @override
   Widget build(BuildContext context) {
@@ -156,7 +162,11 @@ class TranslatorApp extends StatelessWidget {
         fontFamily: 'sans',
         useMaterial3: true,
       ),
-      home: ConversationPage(audioCapture: audioCapture, api: api),
+      home: ConversationPage(
+        audioCapture: audioCapture,
+        api: api,
+        minHoldDuration: minHoldDuration,
+      ),
     );
   }
 }
@@ -165,12 +175,17 @@ class TranslatorApp extends StatelessWidget {
 // Main Interactive View Container
 // ---------------------------------------------------------------------------
 class ConversationPage extends StatefulWidget {
-  ConversationPage({super.key, AudioCapture? audioCapture, TranslatorApi? api})
-    : audioCapture = audioCapture ?? RecordingService(),
-      api = api ?? TranslatorApi();
+  ConversationPage({
+    super.key,
+    AudioCapture? audioCapture,
+    TranslatorApi? api,
+    this.minHoldDuration = const Duration(milliseconds: 350),
+  })  : audioCapture = audioCapture ?? RecordingService(),
+        api = api ?? TranslatorApi();
 
   final AudioCapture audioCapture;
   final TranslatorApi api;
+  final Duration minHoldDuration;
 
   @override
   State<ConversationPage> createState() => _ConversationPageState();
@@ -805,6 +820,7 @@ class _ConversationPageState extends State<ConversationPage>
   // -------------------------------------------------------------------------
   DateTime? _pressStartTime;
   bool _isRecording = false;
+  Future<String?>? _stoppingAudioFuture;
 
   Future<void> _onDialDown() async {
     if (_isRecording) {
@@ -821,19 +837,27 @@ class _ConversationPageState extends State<ConversationPage>
 
     _pressStartTime = DateTime.now();
     _isRecording = true;
+    _stoppingAudioFuture = null;
 
     setState(() {
       _view = AppView.speaking;
     });
 
-    // Pipelined: Free NMT from memory and pre-warm STT in parallel while user speaks!
+    // Free NMT memory so device RAM is lean
     _offlineNmt.dispose();
-    _offlineStt.initialize();
 
     try {
-      _recordedFilePath = await widget.audioCapture.start();
+      widget.audioCapture.start().then((path) {
+        _recordedFilePath = path;
+      }).catchError((e) {
+        debugPrint('Audio capture start error: $e');
+        _isRecording = false;
+        if (mounted) {
+          setState(() => _view = AppView.ready);
+        }
+      });
     } catch (e) {
-      debugPrint('Audio capture start error: $e');
+      debugPrint('Audio capture sync start error: $e');
       _isRecording = false;
       if (mounted) {
         setState(() => _view = AppView.ready);
@@ -844,13 +868,14 @@ class _ConversationPageState extends State<ConversationPage>
   Future<void> _onDialUp() async {
     if (!_isRecording || _pressStartTime == null) return;
 
-    final elapsed = DateTime.now().difference(_pressStartTime!).inMilliseconds;
-    if (elapsed < 350) {
+    final elapsed = DateTime.now().difference(_pressStartTime!);
+    _isRecording = false;
+    _pressStartTime = null;
+
+    if (elapsed < widget.minHoldDuration) {
       // User tapped or released too quickly: cancel recording and inform user to hold
-      _isRecording = false;
-      _pressStartTime = null;
       try {
-        await widget.audioCapture.stop();
+        widget.audioCapture.stop();
       } catch (_) {}
       if (mounted) {
         setState(() => _view = AppView.ready);
@@ -888,29 +913,17 @@ class _ConversationPageState extends State<ConversationPage>
     if (_haptics) {
       HapticFeedback.mediumImpact();
     }
-    await _stopAndSubmitRecording();
-  }
 
-  Future<void> _beginSpeaking() => _onDialDown();
-  Future<void> _finishSpeaking() => _onDialUp();
-
-  Future<void> _stopAndSubmitRecording() async {
-    if (!_isRecording && _view != AppView.speaking) return;
-    _isRecording = false;
-    _pressStartTime = null;
-
-    String? path;
-    try {
-      path = await widget.audioCapture.stop();
+    // Launch audio stopping in background concurrently without blocking UI
+    final stopFuture = widget.audioCapture.stop();
+    _stoppingAudioFuture = stopFuture;
+    stopFuture.then((path) {
       if (path != null && path.isNotEmpty) {
         _recordedFilePath = path;
       }
-    } catch (e) {
-      debugPrint('Audio capture stop error: $e');
-    }
-
-    await Future.delayed(const Duration(milliseconds: 200));
-    if (!mounted) return;
+    }).catchError((e) {
+      debugPrint('Audio capture stop background error: $e');
+    });
 
     if (_conversationMode) {
       final source = _conversationTurn.isEven
@@ -923,22 +936,21 @@ class _ConversationPageState extends State<ConversationPage>
         _language = source;
         _targetLanguage = target;
         _conversationTurn++;
+        _view = AppView.loading;
       });
       await _executeTranslation(source: null, target: target);
     } else {
-      // Normal Voice Mode: Prompt speaker to choose target language (while spoken language is auto-detected!)
-      if (_recordedFilePath != null && _recordedFilePath!.isNotEmpty) {
-        setState(() {
-          _view = AppView.ready;
-        });
-        _showTranslateToPrompt();
-      } else {
-        setState(() {
-          _view = AppView.ready;
-        });
-      }
+      // INSTANT ZERO-LATENCY POPUP:
+      // Instantly transition dial out of speaking state and open "Translate into" sheet!
+      setState(() {
+        _view = AppView.ready;
+      });
+      _showTranslateToPrompt();
     }
   }
+
+  Future<void> _beginSpeaking() => _onDialDown();
+  Future<void> _finishSpeaking() => _onDialUp();
 
   Future<void> _chooseLanguage(AppLanguage chosen) async {
     final preferred = kLanguages.firstWhere(
@@ -965,7 +977,19 @@ class _ConversationPageState extends State<ConversationPage>
       _view = AppView.loading;
     });
 
-    final audioPath = _recordedFilePath;
+    // Await background audio recording finalization if it was still completing
+    String? audioPath = _recordedFilePath;
+    if (_stoppingAudioFuture != null) {
+      try {
+        final path = await _stoppingAudioFuture;
+        if (path != null && path.isNotEmpty) {
+          audioPath = path;
+        }
+      } catch (e) {
+        debugPrint('Error awaiting audio stop: $e');
+      }
+      _stoppingAudioFuture = null;
+    }
     _recordedFilePath = null;
 
     try {
@@ -1977,6 +2001,7 @@ class _ConversationPageState extends State<ConversationPage>
                   GestureDetector(
                     onTap: () {
                       Navigator.of(sheetCtx).pop();
+                      _cleanupPendingRecording();
                       if (mounted) setState(() => _view = AppView.ready);
                     },
                     child: Container(
@@ -2028,7 +2053,34 @@ class _ConversationPageState extends State<ConversationPage>
           ),
         );
       },
-    );
+    ).then((_) {
+      if (mounted && _view != AppView.loading && _view != AppView.result) {
+        _cleanupPendingRecording();
+      }
+    });
+  }
+
+  void _cleanupPendingRecording() {
+    final pending = _stoppingAudioFuture;
+    _stoppingAudioFuture = null;
+    final path = _recordedFilePath;
+    _recordedFilePath = null;
+
+    if (pending != null) {
+      pending.then((stopped) {
+        if (stopped != null && stopped.isNotEmpty) {
+          try {
+            final f = File(stopped);
+            if (f.existsSync()) f.deleteSync();
+          } catch (_) {}
+        }
+      });
+    } else if (path != null && path.isNotEmpty) {
+      try {
+        final f = File(path);
+        if (f.existsSync()) f.deleteSync();
+      } catch (_) {}
+    }
   }
 
   Widget _buildSettingsStyleTranslateBox(BuildContext sheetCtx) {
@@ -2707,17 +2759,20 @@ class _ConversationPageState extends State<ConversationPage>
                       Row(
                         children: [
                           _buildMiniSwatch(_language),
-                          const SizedBox(width: 10),
-                          Text(
-                            '${_language.name.toUpperCase()} (${_language.native})',
-                            style: const TextStyle(
-                              color: Color(0xFF666A60),
-                              fontSize: 9.5,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.8,
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '${_language.name.toUpperCase()} (${_language.native})',
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFF666A60),
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.8,
+                              ),
                             ),
                           ),
-                          const Spacer(),
+                          const SizedBox(width: 6),
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 8,
@@ -4007,90 +4062,96 @@ class _OrbStageState extends State<_OrbStage>
               ),
             ),
 
-          // Central 126px Tactile Dial
+          // Central 126px Tactile Dial with expanded 170px hit area
           Listener(
             key: const ValueKey('mic_dial_button'),
             behavior: HitTestBehavior.opaque,
             onPointerDown: (_) => widget.onDialDown(),
             onPointerUp: (_) => widget.onDialUp(),
             onPointerCancel: (_) => widget.onDialUp(),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 140),
-              width: 126,
-              height: 126,
-              transform: widget.isSpeaking
-                  ? Matrix4.translationValues(0, 5, 0)
-                  : Matrix4.identity(),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFF2D302B), width: 7),
-                gradient: const RadialGradient(
-                  center: Alignment(-0.25, -0.4),
-                  radius: 0.9,
-                  colors: [
-                    Color(0xFFFF8B64),
-                    LisanTheme.orange,
-                    LisanTheme.orangeDark,
-                    Color(0xFF792417),
-                  ],
-                  stops: [0.0, 0.42, 0.75, 1.0],
-                ),
-                boxShadow: [
-                  const BoxShadow(color: Color(0xFF151713), spreadRadius: 2),
-                  const BoxShadow(color: Color(0xFFA9A191), spreadRadius: 8),
-                  const BoxShadow(color: Color(0xFFF6EFDF), spreadRadius: 10),
-                  BoxShadow(
-                    color: const Color(0x56342C23),
-                    offset: widget.isSpeaking
-                        ? const Offset(0, 4)
-                        : const Offset(0, 11),
-                    blurRadius: widget.isSpeaking ? 6 : 14,
+            child: Container(
+              width: 170,
+              height: 170,
+              color: Colors.transparent,
+              alignment: Alignment.center,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 140),
+                width: 126,
+                height: 126,
+                transform: widget.isSpeaking
+                    ? Matrix4.translationValues(0, 5, 0)
+                    : Matrix4.identity(),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFF2D302B), width: 7),
+                  gradient: const RadialGradient(
+                    center: Alignment(-0.25, -0.4),
+                    radius: 0.9,
+                    colors: [
+                      Color(0xFFFF8B64),
+                      LisanTheme.orange,
+                      LisanTheme.orangeDark,
+                      Color(0xFF792417),
+                    ],
+                    stops: [0.0, 0.42, 0.75, 1.0],
                   ),
-                ],
-              ),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  // Inner decorative ring
-                  Container(
-                    width: 108,
-                    height: 108,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: const Color(0x4DFFF2DC),
-                        width: 1,
-                      ),
+                  boxShadow: [
+                    const BoxShadow(color: Color(0xFF151713), spreadRadius: 2),
+                    const BoxShadow(color: Color(0xFFA9A191), spreadRadius: 8),
+                    const BoxShadow(color: Color(0xFFF6EFDF), spreadRadius: 10),
+                    BoxShadow(
+                      color: const Color(0x56342C23),
+                      offset: widget.isSpeaking
+                          ? const Offset(0, 4)
+                          : const Offset(0, 11),
+                      blurRadius: widget.isSpeaking ? 6 : 14,
                     ),
-                  ),
-
-                  // Top crescent highlight
-                  Positioned(
-                    top: 10,
-                    child: Container(
-                      width: 72,
-                      height: 17,
+                  ],
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // Inner decorative ring
+                    Container(
+                      width: 108,
+                      height: 108,
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(10),
-                        gradient: const LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [Color(0x56FFFFFF), Colors.transparent],
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: const Color(0x4DFFF2DC),
+                          width: 1,
                         ),
                       ),
                     ),
-                  ),
 
-                  // Mic Icon
-                  const Center(
-                    child: LisanIcon(
-                      LisanIconType.mic,
-                      size: 34,
-                      color: Color(0xFFFFF8E9),
-                      strokeWidth: 2.2,
+                    // Top crescent highlight
+                    Positioned(
+                      top: 10,
+                      child: Container(
+                        width: 72,
+                        height: 17,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          gradient: const LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Color(0x56FFFFFF), Colors.transparent],
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+
+                    // Mic Icon
+                    const Center(
+                      child: LisanIcon(
+                        LisanIconType.mic,
+                        size: 34,
+                        color: Color(0xFFFFF8E9),
+                        strokeWidth: 2.2,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

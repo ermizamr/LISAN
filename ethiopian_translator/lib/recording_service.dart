@@ -11,20 +11,41 @@ abstract interface class AudioCapture {
 
 class RecordingService implements AudioCapture {
   RecordingService({AudioRecorder? recorder})
-    : _recorder = recorder ?? AudioRecorder();
+    : _recorder = recorder ?? AudioRecorder() {
+    _preWarm();
+  }
 
   final AudioRecorder _recorder;
+  bool _hasPermission = false;
+  String? _cachedTempDir;
+  Future<String>? _activeStartFuture;
+
+  Future<void> _preWarm() async {
+    try {
+      _hasPermission = await _recorder.hasPermission();
+      final dir = await getTemporaryDirectory();
+      _cachedTempDir = dir.path;
+    } catch (_) {}
+  }
 
   @override
   Future<String> start() async {
-    if (!await _recorder.hasPermission()) {
-      throw const RecordingException('Microphone permission was denied');
+    if (!_hasPermission) {
+      if (!await _recorder.hasPermission()) {
+        throw const RecordingException('Microphone permission was denied');
+      }
+      _hasPermission = true;
     }
 
-    final directory = await getTemporaryDirectory();
+    if (_cachedTempDir == null) {
+      final dir = await getTemporaryDirectory();
+      _cachedTempDir = dir.path;
+    }
+
     final filename = 'lisan_${DateTime.now().microsecondsSinceEpoch}.wav';
-    final path = '${directory.path}/$filename';
-    await _recorder.start(
+    final path = '$_cachedTempDir/$filename';
+
+    final startOp = _recorder.start(
       const RecordConfig(
         encoder: AudioEncoder.wav,
         sampleRate: 16000,
@@ -32,11 +53,22 @@ class RecordingService implements AudioCapture {
       ),
       path: path,
     );
+
+    _activeStartFuture = startOp.then((_) => path);
+    await startOp;
     return path;
   }
 
   @override
-  Future<String?> stop() => _recorder.stop();
+  Future<String?> stop() async {
+    if (_activeStartFuture != null) {
+      try {
+        await _activeStartFuture;
+      } catch (_) {}
+      _activeStartFuture = null;
+    }
+    return _recorder.stop();
+  }
 
   @override
   Future<void> dispose() => _recorder.dispose();

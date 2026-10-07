@@ -78,4 +78,39 @@ void main() {
     // After release, finishes recording
     expect(find.text('RECORDING · RELEASE TO TRANSLATE'), findsNothing);
   });
+
+  testWidgets('releasing mic dial immediately opens Translate into modal without lag', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+
+    await tester.pumpWidget(const TranslatorApp(
+      audioCapture: DemoRecordingService(),
+      minHoldDuration: Duration.zero,
+    ));
+
+    final dialFinder = find.byKey(const ValueKey('mic_dial_button'));
+
+    // 1. Press and hold down
+    final gesture = await tester.startGesture(tester.getCenter(dialFinder));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('RECORDING · RELEASE TO TRANSLATE'), findsOneWidget);
+
+    // 2. Release dial -> INSTANTLY pops up the target language picker
+    await gesture.up();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(find.text('Translate into'), findsOneWidget);
+    expect(find.text('VOICE CAPTURED · SELECT TARGET'), findsOneWidget);
+    expect(find.text('መተርጎሚያ ቋንቋ ይምረጡ'), findsOneWidget);
+
+    // 3. Tapping target language proceeds to translation
+    await tester.tap(find.text('English'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('Translate into'), findsNothing);
+  });
 }
