@@ -15,8 +15,7 @@ datasets>=2.19.0
 huggingface_hub>=0.23.0
 
 # Quantization & Parameter-Efficient Fine-Tuning
-# bitsandbytes >= 0.43.0 has native Windows 64-bit CUDA support
-bitsandbytes>=0.43.0
+bitsandbytes>=0.46.1
 
 # Neural Machine Translation Inference & Quantization
 ctranslate2>=4.3.0
