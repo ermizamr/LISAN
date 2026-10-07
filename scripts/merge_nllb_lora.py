@@ -35,6 +35,44 @@ try:
 except Exception:
     pass
 
+# Neutralize transformers / peft Seq2Seq kwargs rename compatibility bug globally
+try:
+    import transformers
+    from transformers import PreTrainedModel, GenerationMixin
+    try:
+        from transformers.models.m2m_100.modeling_m2m_100 import M2M100ForConditionalGeneration
+        classes_to_patch = [M2M100ForConditionalGeneration, GenerationMixin, PreTrainedModel]
+    except Exception:
+        classes_to_patch = [GenerationMixin, PreTrainedModel]
+
+    for cls in classes_to_patch:
+        if not hasattr(cls, "_prepare_encoder_decoder_kwargs_for_generation"):
+            alt_method = getattr(cls, "_prepare_text_encoder_decoder_kwargs_for_generation", None)
+            if alt_method is not None:
+                cls._prepare_encoder_decoder_kwargs_for_generation = alt_method
+            else:
+                cls._prepare_encoder_decoder_kwargs_for_generation = lambda self, *args, **kwargs: {}
+except Exception:
+    pass
+
+try:
+    import peft
+    from peft.tuners.tuners_utils import BaseTuner
+    orig_getattr = BaseTuner.__getattr__
+    def safe_getattr(self, name: str):
+        try:
+            return orig_getattr(self, name)
+        except AttributeError:
+            if name == "_prepare_encoder_decoder_kwargs_for_generation":
+                alt = getattr(self.model, "_prepare_text_encoder_decoder_kwargs_for_generation", None)
+                if alt is not None:
+                    return alt
+                return lambda *args, **kwargs: {}
+            raise
+    BaseTuner.__getattr__ = safe_getattr
+except Exception:
+    pass
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Merge NLLB LoRA adapter into standalone checkpoint and CTranslate2")
