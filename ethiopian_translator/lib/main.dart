@@ -924,14 +924,11 @@ class _ConversationPageState extends State<ConversationPage>
         _targetLanguage = target;
         _conversationTurn++;
       });
-      await _executeTranslation(source: source, target: target);
+      await _executeTranslation(source: null, target: target);
     } else {
-      // Normal Voice Mode: prompt user with aesthetic "Translate to" select box
+      // Normal Voice Mode: Automatically recognise the spoken language and translate directly!
       if (_recordedFilePath != null && _recordedFilePath!.isNotEmpty) {
-        setState(() {
-          _view = AppView.ready;
-        });
-        _showTranslateToPrompt();
+        await _executeTranslation(source: null, target: _targetLanguage);
       } else {
         setState(() {
           _view = AppView.ready;
@@ -1021,22 +1018,62 @@ class _ConversationPageState extends State<ConversationPage>
         return;
       }
 
-      // Determine effective source language
-      final effectiveSource = source ?? _language;
+      // -----------------------------------------------------------------------
+      // Automatic Spoken Language Recognition (LID) & Smart Counterpart Routing
+      // -----------------------------------------------------------------------
+      AppLanguage effectiveSource;
+      AppLanguage effectiveTarget;
+
+      if (_smartDetect || source == null) {
+        final detectedKey = OfflineTranslationMemory.detectLanguage(
+          transcribedText,
+          defaultLang: (source ?? _language).backendKey,
+        );
+        debugPrint('[Offline LID] Recognized spoken language: $detectedKey for "$transcribedText"');
+        effectiveSource = kLanguages.firstWhere(
+          (l) => l.backendKey == detectedKey,
+          orElse: () => source ?? _language,
+        );
+
+        // Intelligently route the translation to the counterpart language
+        if (effectiveSource.backendKey == _targetLanguage.backendKey) {
+          // If speaker spoke in the target language, response routes to source
+          effectiveTarget = _language;
+        } else if (effectiveSource.backendKey == _language.backendKey) {
+          // If speaker spoke in source language, response routes to target
+          effectiveTarget = _targetLanguage;
+        } else {
+          // A different language was spoken:
+          // If English spoken -> translate to active partner
+          // If Ethiopian language spoken -> translate to English (or active partner)
+          effectiveTarget = (effectiveSource.backendKey == 'eng')
+              ? _targetLanguage
+              : (_isEnglishSpeaker ? kLanguages[4] : _targetLanguage);
+
+          if (effectiveTarget.backendKey == effectiveSource.backendKey) {
+            effectiveTarget = (effectiveSource.backendKey == 'eng')
+                ? kLanguages[0]
+                : kLanguages[4];
+          }
+        }
+      } else {
+        effectiveSource = source;
+        effectiveTarget = target;
+      }
 
       // Clean speech recognition artifacts & acoustic degradation across all 5 languages
       transcribedText = OfflineTranslationMemory.cleanSpokenTranscription(
         transcribedText,
         effectiveSource.backendKey,
       );
-      debugPrint('[Offline STT] Cleaned: "$transcribedText"');
+      debugPrint('[Offline STT] Cleaned: "$transcribedText" (${effectiveSource.code} -> ${effectiveTarget.code})');
 
       // 2. Offline NMT: translate
       final translatedText = await _offlineNmt
           .translate(
             transcribedText,
             sourceLang: effectiveSource.backendKey,
-            targetLang: target.backendKey,
+            targetLang: effectiveTarget.backendKey,
           )
           .timeout(const Duration(seconds: 30));
       debugPrint('[Offline NMT] "$translatedText"');
@@ -1046,7 +1083,7 @@ class _ConversationPageState extends State<ConversationPage>
       if (mounted) {
         setState(() {
           _language = effectiveSource;
-          _targetLanguage = target;
+          _targetLanguage = effectiveTarget;
           _sourceText = transcribedText.trim();
           _outputText = translatedText.trim();
           _view = AppView.result;
@@ -1076,9 +1113,28 @@ class _ConversationPageState extends State<ConversationPage>
   }) async {
     if (text.trim().isEmpty) return;
 
+    AppLanguage effectiveSrc = source;
+    AppLanguage effectiveTgt = target;
+
+    if (_smartDetect) {
+      final detectedKey = OfflineTranslationMemory.detectLanguage(
+        text,
+        defaultLang: source.backendKey,
+      );
+      effectiveSrc = kLanguages.firstWhere(
+        (l) => l.backendKey == detectedKey,
+        orElse: () => source,
+      );
+      if (effectiveSrc.backendKey == effectiveTgt.backendKey) {
+        effectiveTgt = (effectiveSrc.backendKey == 'eng')
+            ? kLanguages[0]
+            : kLanguages[4];
+      }
+    }
+
     setState(() {
-      _language = source;
-      _targetLanguage = target;
+      _language = effectiveSrc;
+      _targetLanguage = effectiveTgt;
       _view = AppView.result;
     });
 
@@ -1086,8 +1142,8 @@ class _ConversationPageState extends State<ConversationPage>
       _offlineStt.dispose();
       final translatedText = await _offlineNmt.translate(
         text.trim(),
-        sourceLang: source.backendKey,
-        targetLang: target.backendKey,
+        sourceLang: effectiveSrc.backendKey,
+        targetLang: effectiveTgt.backendKey,
       );
       // NMT session kept warm in memory for rapid subsequent text translations.
       // Automatically freed if user switches to voice mode in _onDialDown().
@@ -2678,14 +2734,28 @@ class _ConversationPageState extends State<ConversationPage>
                               ),
                               color: const Color(0xFFE4DECF),
                             ),
-                            child: const Text(
-                              'ORIGINAL',
-                              style: TextStyle(
-                                color: Color(0xFF62665C),
-                                fontSize: 7.5,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.6,
-                              ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 5,
+                                  height: 5,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: _language.tone,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const Text(
+                                  'AUTO-RECOGNISED',
+                                  style: TextStyle(
+                                    color: Color(0xFF62665C),
+                                    fontSize: 7.5,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.6,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],

@@ -279,6 +279,133 @@ class OfflineTranslationMemory {
     }
   }
 
+  /// Automatically recognises the spoken language from speech transcription text.
+  /// Identifies Amharic ('amh'), Tigrinya ('tir'), Afaan Oromoo ('orm'),
+  /// Somali ('som'), or English ('eng') using script analysis, vocabulary, and phonotactics.
+  static String detectLanguage(String text, {String defaultLang = 'amh'}) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return defaultLang;
+
+    // 1. Explicit STT model language token cues
+    final lower = trimmed.toLowerCase();
+    if (lower.contains('[amh]') || lower.startsWith('amh:')) return 'amh';
+    if (lower.contains('[tir]') || lower.startsWith('tir:')) return 'tir';
+    if (lower.contains('[orm]') || lower.startsWith('orm:')) return 'orm';
+    if (lower.contains('[som]') || lower.startsWith('som:')) return 'som';
+    if (lower.contains('[eng]') || lower.startsWith('eng:')) return 'eng';
+
+    // 2. Ethiopic (Ge'ez) script detection: Amharic vs Tigrinya
+    final ethiopicMatches = RegExp(r'[\u1200-\u137F\u1380-\u139F\u2D80-\u2DDF\uAB00-\uAB2F]').allMatches(trimmed);
+    if (ethiopicMatches.isNotEmpty) {
+      var tirScore = 0;
+      var amhScore = 0;
+
+      // Tigrinya-distinct consonants and vowels (ቐ, ቘ, ዀ, ዸ, ጘ, ኽ, initial ኣ)
+      if (RegExp(r'[\u1250-\u125D\u12B8-\u12BF\u12F8-\u12FD\u1318-\u131D\u1358-\u135A]').hasMatch(trimmed)) {
+        tirScore += 5;
+      }
+      if (trimmed.contains('ኣ')) {
+        tirScore += 2;
+      }
+
+      // Amharic-distinct consonants (ኘ, ዠ, ጨ, ጰ)
+      if (RegExp(r'[\u1298-\u129F\u12E0-\u12E7\u1328-\u132F\u1338-\u133F]').hasMatch(trimmed)) {
+        amhScore += 5;
+      }
+
+      // High-frequency Tigrinya lexical markers
+      const tirWords = [
+        'ከመይ', 'ጽቡቕ', 'ጽቡቅ', 'የቐንየለይ', 'የቀንየለይ', 'ኣለኹ', 'አለኹ', 'ኣለኻ', 'አለኻ',
+        'ኣለኺ', 'አለኺ', 'ኣለዉ', 'አለዉ', 'ኣይኮነን', 'አይኮነን', 'ሓቂ', 'ደቒ', 'ደቂ', 'ዓዲ',
+        'ጥዕና', 'ይቕሬታ', 'ይቅሬታ', 'እንታይ', 'ናይ', 'ኣበይ', 'አበይ', 'ሕጂ', 'ሕዚ', 'መን',
+        'ንሕና', 'ንስኻ', 'ንስኺ', 'እወ', 'ኣይፋልን', 'ማይ', 'በጃኻ', 'በጃኺ', 'ሓወይ', 'ሓፍተይ',
+        'ደሓን', 'ሰላም', 'ሽምካ', 'ሽምኪ', 'ትግርኛ', 'ክንደይ',
+      ];
+      for (final w in tirWords) {
+        if (trimmed.contains(w)) tirScore += 4;
+      }
+
+      // High-frequency Amharic lexical markers
+      const amhWords = [
+        'ነው', 'ነኝ', 'ነህ', 'ነሽ', 'ናት', 'ናቸው', 'ናችሁ', 'ነበር', 'የለም', 'አለ',
+        'አይደለም', 'እሺ', 'አመሰግናለሁ', 'እንዴት', 'ምን', 'ማን', 'የት', 'መቼ', 'ለምን',
+        'እኔ', 'አንተ', 'አንቺ', 'እሱ', 'እሷ', 'እኛ', 'እናንተ', 'እነሱ', 'በጣም', 'ጥሩ',
+        'ውሃ', 'ምግብ', 'ቤት', 'ሆስፒታል', 'መድሃኒት', 'ህመም', 'ዶክተር', 'ስምህ', 'ስምሽ',
+        'አማርኛ', 'ስንት', 'ዋጋ', 'ይቅርታ', 'ደህና', 'እንደምን',
+      ];
+      for (final w in amhWords) {
+        if (trimmed.contains(w)) amhScore += 4;
+      }
+
+      return (tirScore > amhScore) ? 'tir' : 'amh';
+    }
+
+    // 3. Latin script: Afaan Oromoo vs Somali vs English
+    final words = lower.split(RegExp(r'\s+'));
+    var ormScore = 0;
+    var somScore = 0;
+    var engScore = 0;
+
+    const ormKeywords = {
+      'akkam', 'nagaa', 'maal', 'eessa', 'yoom', 'maaliif', 'eenyu', 'fayyaa',
+      'galatoomi', 'baga', 'ani', 'ati', 'inni', 'isheen', 'nuti', 'isin', 'isaan',
+      'gaarii', 'dhuguma', 'hin', 'miti', 'akka', 'waan', 'biyya', 'mana',
+      'bishaan', 'dhibee', 'hospitaala', 'qoricha', 'dhukkuba', 'doktoora',
+      'guyyaa', 'halkan', 'tolle', 'eyyee', 'lakki', 'maaloo', 'jirta', 'jirtu',
+      'obboo', 'aadde', 'oromoo', 'oromiyaa', 'meeqa', 'kee', 'koo',
+    };
+
+    const somKeywords = {
+      'sidee', 'tahay', 'subax', 'galab', 'wanaagsan', 'mahadsanid', 'waan',
+      'fiicanahay', 'magacaa', 'xagee', 'immisa', 'haa', 'maya', 'fadlan',
+      'maxaa', 'waayo', 'goorma', 'kuma', 'aniga', 'adiga', 'isaga', 'iyada',
+      'annaga', 'idinka', 'iyaga', 'biyo', 'guri', 'isbitaal', 'dhaqtar',
+      'dawo', 'xanuun', 'nabad', 'soo', 'dhawoow', 'shaah', 'lacag', 'maanta',
+      'somali', 'soomaali', 'hayee', 'fiican', 'adigu',
+    };
+
+    const engKeywords = {
+      'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i', 'it',
+      'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at', 'this',
+      'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she', 'or',
+      'an', 'will', 'my', 'one', 'all', 'would', 'there', 'their', 'what',
+      'so', 'up', 'out', 'if', 'about', 'who', 'get', 'which', 'go', 'me',
+      'when', 'make', 'can', 'like', 'time', 'no', 'just', 'him', 'know',
+      'take', 'people', 'into', 'year', 'your', 'good', 'some', 'could',
+      'them', 'see', 'other', 'than', 'then', 'now', 'look', 'only', 'come',
+      'its', 'over', 'think', 'also', 'back', 'after', 'use', 'two', 'how',
+      'our', 'work', 'first', 'well', 'way', 'even', 'new', 'want', 'because',
+      'any', 'these', 'give', 'day', 'most', 'us', 'hello', 'hi', 'please',
+      'thank', 'thanks', 'pain', 'doctor', 'hospital', 'water', 'medicine',
+      'help', 'where', 'is', 'are', 'am', 'yes', 'headache', 'fever', 'stomach',
+      'nurse', 'emergency', 'food', 'market', 'price',
+    };
+
+    for (final rawWord in words) {
+      final clean = rawWord.replaceAll(RegExp(r'[^a-z]'), '');
+      if (clean.isEmpty) continue;
+
+      if (ormKeywords.contains(clean)) ormScore += 3;
+      if (somKeywords.contains(clean)) somScore += 3;
+      if (engKeywords.contains(clean)) engScore += 3;
+
+      if (clean.contains('dh') || clean.contains('ny') || clean.contains('ch')) ormScore += 1;
+      if (clean.contains('x') || clean.contains('c') || clean.contains('kh')) somScore += 1;
+      if (clean.contains('th') || clean.contains('wh') || clean.contains('tion')) engScore += 2;
+    }
+
+    if (ormScore > somScore && ormScore > engScore) return 'orm';
+    if (somScore > ormScore && somScore > engScore) return 'som';
+    if (engScore > ormScore && engScore > somScore) return 'eng';
+
+    // Phonotactic heuristic for Oromo / Somali vowel lengthening vs English
+    if (RegExp(r'[aeiou]{2}').hasMatch(lower)) {
+      return (somScore >= ormScore && somScore > 0) ? 'som' : 'orm';
+    }
+
+    return defaultLang;
+  }
+
   /// Normalizes source text before feeding into NLLB tokenizer for any language.
   static String normalizeForNmt(String text, String sourceLang) {
     return cleanSpokenTranscription(text, sourceLang);

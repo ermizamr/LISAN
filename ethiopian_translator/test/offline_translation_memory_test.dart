@@ -558,5 +558,40 @@ void main() {
         'Sidee tahay, ma fiican tahay?',
       );
     });
+
+    test('detectLanguage automatically recognises all 5 Ethiopian languages', () {
+      // 1. Amharic sentences
+      expect(OfflineTranslationMemory.detectLanguage('እኔ ደህና ነኝ አንተ ደህና ነህ?'), 'amh');
+      expect(OfflineTranslationMemory.detectLanguage('ምንህን ነው የሚያምህ?'), 'amh');
+      expect(OfflineTranslationMemory.detectLanguage('መድሃኒት አዝልሃለው'), 'amh');
+      expect(OfflineTranslationMemory.detectLanguage('ሰላም አመሰግናለሁ'), 'amh');
+
+      // 2. Tigrinya sentences
+      expect(OfflineTranslationMemory.detectLanguage('ከመይ ኣለኻ ሓወይ?'), 'tir');
+      expect(OfflineTranslationMemory.detectLanguage('ጽቡቕ ኣለኹ የቐንየለይ'), 'tir');
+      expect(OfflineTranslationMemory.detectLanguage('ጥዕና ይሃበለይ እንታይ ትደሊ ኣለኻ?'), 'tir');
+
+      // 3. Afaan Oromoo sentences
+      expect(OfflineTranslationMemory.detectLanguage('Akkam jirta, nagaa dhaa?'), 'orm');
+      expect(OfflineTranslationMemory.detectLanguage('Maal barbaadda? Galatoomi'), 'orm');
+      expect(OfflineTranslationMemory.detectLanguage('Bishaan barbaada'), 'orm');
+
+      // 4. Somali sentences
+      expect(OfflineTranslationMemory.detectLanguage('Sidee tahay, ma fiican tahay?'), 'som');
+      expect(OfflineTranslationMemory.detectLanguage('Subax wanaagsan mahadsanid'), 'som');
+      expect(OfflineTranslationMemory.detectLanguage('Waan fiicanahay adigu sidee tahay?'), 'som');
+
+      // 5. English sentences
+      expect(OfflineTranslationMemory.detectLanguage('Hello doctor, where does it hurt?'), 'eng');
+      expect(OfflineTranslationMemory.detectLanguage('I have a severe headache and fever'), 'eng');
+      expect(OfflineTranslationMemory.detectLanguage('Thank you very much for your help'), 'eng');
+
+      // 6. Explicit STT model tokens
+      expect(OfflineTranslationMemory.detectLanguage('[AMH] ሰላም'), 'amh');
+      expect(OfflineTranslationMemory.detectLanguage('[ORM] akkam'), 'orm');
+      expect(OfflineTranslationMemory.detectLanguage('[TIR] ከመይ'), 'tir');
+      expect(OfflineTranslationMemory.detectLanguage('[SOM] nabad'), 'som');
+      expect(OfflineTranslationMemory.detectLanguage('[ENG] hello'), 'eng');
+    });
   });
 }
