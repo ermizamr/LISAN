@@ -843,9 +843,6 @@ class _ConversationPageState extends State<ConversationPage>
       _view = AppView.speaking;
     });
 
-    // Free NMT memory so device RAM is lean
-    _offlineNmt.dispose();
-
     try {
       widget.audioCapture.start().then((path) {
         _recordedFilePath = path;
@@ -1023,8 +1020,6 @@ class _ConversationPageState extends State<ConversationPage>
         }
         return;
       } finally {
-        // Free STT memory so NMT has full RAM headroom
-        _offlineStt.dispose();
         // Clean up temporary recorded file
         try {
           final f = File(audioPath);
@@ -1097,8 +1092,6 @@ class _ConversationPageState extends State<ConversationPage>
           )
           .timeout(const Duration(seconds: 30));
       debugPrint('[Offline NMT] "$translatedText"');
-      // Free NMT memory to keep memory lean for subsequent voice input
-      _offlineNmt.dispose();
 
       if (mounted) {
         setState(() {
@@ -1159,7 +1152,6 @@ class _ConversationPageState extends State<ConversationPage>
     });
 
     try {
-      _offlineStt.dispose();
       final translatedText = await _offlineNmt.translate(
         text.trim(),
         sourceLang: effectiveSrc.backendKey,
