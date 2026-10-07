@@ -49,5 +49,33 @@ void main() {
     await tester.tap(closeFinder);
     await tester.pumpAndSettle();
     expect(find.textContaining('Speak freely.'), findsOneWidget);
+    expect(find.text('HOLD TO SPEAK'), findsOneWidget);
+  });
+
+  testWidgets('mic dial behaves as strict hold-to-talk (no touch-toggle)', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+
+    await tester.pumpWidget(const TranslatorApp(
+      audioCapture: DemoRecordingService(),
+    ));
+
+    final dialFinder = find.byKey(const ValueKey('mic_dial_button'));
+    expect(dialFinder, findsOneWidget);
+    expect(find.text('HOLD TO SPEAK'), findsOneWidget);
+
+    // 1. Press and hold down
+    final gesture = await tester.startGesture(tester.getCenter(dialFinder));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('RECORDING · RELEASE TO TRANSLATE'), findsOneWidget);
+
+    // 2. Release after holding
+    await gesture.up();
+    await tester.pumpAndSettle();
+    // After release, finishes recording
+    expect(find.text('RECORDING · RELEASE TO TRANSLATE'), findsNothing);
   });
 }

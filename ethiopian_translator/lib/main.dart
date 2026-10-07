@@ -209,6 +209,8 @@ class _ConversationPageState extends State<ConversationPage>
   late final AudioPlayer _audioPlayer;
   late final TextEditingController _serverController;
   Timer? _playbackTimer;
+  Timer? _initTimer;
+  Timer? _personaTimer;
 
   @override
   void initState() {
@@ -226,7 +228,7 @@ class _ConversationPageState extends State<ConversationPage>
 
     // Fast instant launch: pre-warm NMT tokenizer gently in background AFTER first frame is drawn
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(const Duration(milliseconds: 600), () {
+      _initTimer = Timer(const Duration(milliseconds: 600), () {
         if (mounted) _initTokenizerInBackground();
       });
     });
@@ -250,6 +252,8 @@ class _ConversationPageState extends State<ConversationPage>
     _audioPlayer.dispose();
     _serverController.dispose();
     _playbackTimer?.cancel();
+    _initTimer?.cancel();
+    _personaTimer?.cancel();
     _offlineStt.dispose();
     _offlineNmt.dispose();
     NativeTts.stop();
@@ -285,7 +289,7 @@ class _ConversationPageState extends State<ConversationPage>
         }
       } else {
         // First launch! Prompt the user with the aesthetic alert box
-        Future.delayed(const Duration(milliseconds: 250), () {
+        _personaTimer = Timer(const Duration(milliseconds: 250), () {
           if (mounted) {
             _showPersonaSetupDialog(canDismiss: false);
           }
@@ -804,13 +808,15 @@ class _ConversationPageState extends State<ConversationPage>
 
   Future<void> _onDialDown() async {
     if (_isRecording) {
-      // User tapped again while recording: finish & submit!
-      await _stopAndSubmitRecording();
       return;
     }
 
     if (_view != AppView.ready && _view != AppView.result) {
       return;
+    }
+
+    if (_haptics) {
+      HapticFeedback.heavyImpact();
     }
 
     _pressStartTime = DateTime.now();
@@ -839,17 +845,54 @@ class _ConversationPageState extends State<ConversationPage>
     if (!_isRecording || _pressStartTime == null) return;
 
     final elapsed = DateTime.now().difference(_pressStartTime!).inMilliseconds;
-    if (elapsed >= 500) {
-      // User held the button while speaking (push-to-talk)
-      await _stopAndSubmitRecording();
-    } else {
-      // Short tap: leave recording active until next tap
-      debugPrint('Short tap: hands-free recording active.');
+    if (elapsed < 350) {
+      // User tapped or released too quickly: cancel recording and inform user to hold
+      _isRecording = false;
+      _pressStartTime = null;
+      try {
+        await widget.audioCapture.stop();
+      } catch (_) {}
+      if (mounted) {
+        setState(() => _view = AppView.ready);
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.touch_app_outlined, color: LisanTheme.orange, size: 16),
+                SizedBox(width: 8),
+                Text(
+                  'Hold to speak · release to translate',
+                  style: TextStyle(
+                    color: Color(0xFFE5E8D9),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            duration: const Duration(milliseconds: 1800),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: const Color(0xFF252924),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+              side: const BorderSide(color: Color(0xFF383C35)),
+            ),
+          ),
+        );
+      }
+      return;
     }
+
+    // User held button while speaking (push-to-talk): stop & translate!
+    if (_haptics) {
+      HapticFeedback.mediumImpact();
+    }
+    await _stopAndSubmitRecording();
   }
 
   Future<void> _beginSpeaking() => _onDialDown();
-  Future<void> _finishSpeaking() => _stopAndSubmitRecording();
+  Future<void> _finishSpeaking() => _onDialUp();
 
   Future<void> _stopAndSubmitRecording() async {
     if (!_isRecording && _view != AppView.speaking) return;
@@ -1722,7 +1765,7 @@ class _ConversationPageState extends State<ConversationPage>
           // Hero Copy
           Text(
             isSpeaking
-                ? 'Keep holding while you speak'
+                ? 'Keep holding while you speak · Release to translate'
                 : 'Instant translation across the languages of Ethiopia and the Horn.',
             style: const TextStyle(
               color: LisanTheme.muted,
@@ -1816,8 +1859,8 @@ class _ConversationPageState extends State<ConversationPage>
           Center(
             child: Text(
               isSpeaking
-                  ? 'RECORDING · TAP DIAL TO TRANSLATE'
-                  : 'TAP OR HOLD TO SPEAK',
+                  ? 'RECORDING · RELEASE TO TRANSLATE'
+                  : 'HOLD TO SPEAK',
               style: TextStyle(
                 color: isSpeaking ? LisanTheme.orange : const Color(0xFF8A887E),
                 fontSize: 9.5,
@@ -3904,6 +3947,7 @@ class _OrbStageState extends State<_OrbStage>
             behavior: HitTestBehavior.opaque,
             onPointerDown: (_) => widget.onDialDown(),
             onPointerUp: (_) => widget.onDialUp(),
+            onPointerCancel: (_) => widget.onDialUp(),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 140),
               width: 126,
