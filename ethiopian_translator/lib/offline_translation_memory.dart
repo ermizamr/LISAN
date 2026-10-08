@@ -319,7 +319,7 @@ class OfflineTranslationMemory {
         'ኣለኺ', 'አለኺ', 'ኣለዉ', 'አለዉ', 'ኣይኮነን', 'አይኮነን', 'ሓቂ', 'ደቒ', 'ደቂ', 'ዓዲ',
         'ጥዕና', 'ይቕሬታ', 'ይቅሬታ', 'እንታይ', 'ናይ', 'ኣበይ', 'አበይ', 'ሕጂ', 'ሕዚ', 'መን',
         'ንሕና', 'ንስኻ', 'ንስኺ', 'እወ', 'ኣይፋልን', 'ማይ', 'በጃኻ', 'በጃኺ', 'ሓወይ', 'ሓፍተይ',
-        'ደሓን', 'ሰላም', 'ሽምካ', 'ሽምኪ', 'ትግርኛ', 'ክንደይ',
+        'ደሓን', 'ሽምካ', 'ሽምኪ', 'ትግርኛ', 'ክንደይ',
       ];
       for (final w in tirWords) {
         if (trimmed.contains(w)) tirScore += 4;
@@ -331,7 +331,8 @@ class OfflineTranslationMemory {
         'አይደለም', 'እሺ', 'አመሰግናለሁ', 'እንዴት', 'ምን', 'ማን', 'የት', 'መቼ', 'ለምን',
         'እኔ', 'አንተ', 'አንቺ', 'እሱ', 'እሷ', 'እኛ', 'እናንተ', 'እነሱ', 'በጣም', 'ጥሩ',
         'ውሃ', 'ምግብ', 'ቤት', 'ሆስፒታል', 'መድሃኒት', 'ህመም', 'ዶክተር', 'ስምህ', 'ስምሽ',
-        'አማርኛ', 'ስንት', 'ዋጋ', 'ይቅርታ', 'ደህና', 'እንደምን',
+        'አማርኛ', 'ስንት', 'ዋጋ', 'ይቅርታ', 'ደህና', 'እንደምን', 'ሰላም', 'ደና', 'ደናነ',
+        'ደናነህ', 'ደናነክ', 'እንደይነ', 'እንዴትነ', 'አይደለ', 'አው', 'አዎ',
       ];
       for (final w in amhWords) {
         if (trimmed.contains(w)) amhScore += 4;
@@ -494,7 +495,11 @@ class OfflineTranslationMemory {
   }
 
   static String? _matchSemanticIntent(String norm, String sourceLang, String targetLang) {
-    final tokens = norm.split(' ').toSet();
+    // Intent heuristics must ONLY match short, atomic expressions (<= 4 words).
+    // Long, compound, or multi-clause sentences must bypass heuristics and be translated in full by NLLB.
+    final tokenList = norm.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+    if (tokenList.length > 4) return null;
+    final tokens = tokenList.toSet();
 
     // --- Intent: Where does it hurt / pain location ---
     if (sourceLang == 'amh') {

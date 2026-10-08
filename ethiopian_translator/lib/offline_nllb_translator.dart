@@ -157,14 +157,20 @@ class OfflineNllbTranslator {
     final inputIdsTensor = _int64Tensor(inputIds, [1, seqLen]);
     final attentionMask = _int64Tensor(List.filled(seqLen, 1), [1, seqLen]);
 
-    final encoderOutputs = await _encoderSession!.runAsync(
-      OrtRunOptions(),
-      {
-        'input_ids': inputIdsTensor,
-        'attention_mask': attentionMask,
-      },
-    );
-    inputIdsTensor.release();
+    final encRunOptions = OrtRunOptions();
+    List<OrtValue?>? encoderOutputs;
+    try {
+      encoderOutputs = _encoderSession!.run(
+        encRunOptions,
+        {
+          'input_ids': inputIdsTensor,
+          'attention_mask': attentionMask,
+        },
+      );
+    } finally {
+      encRunOptions.release();
+      inputIdsTensor.release();
+    }
 
     // encoder_hidden_states is the first output
     final encoderHiddenStates = encoderOutputs?.first;
@@ -181,7 +187,7 @@ class OfflineNllbTranslator {
       for (var step = 0; step < _maxNewTokens; step++) {
         final decoderInputIds = _int64Tensor(currIds, [1, currIds.length]);
 
-        final stepOutputs = await _decoderSession!.runAsync(
+        final stepOutputs = _decoderSession!.run(
           runOptions,
           {
             'input_ids': decoderInputIds,

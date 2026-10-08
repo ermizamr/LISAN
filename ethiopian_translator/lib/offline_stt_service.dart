@@ -177,7 +177,7 @@ class OfflineSttService {
       final runOptions = OrtRunOptions();
       List<OrtValue?>? outputs;
       try {
-        outputs = await _session!.runAsync(runOptions, {
+        outputs = _session!.run(runOptions, {
           'input_features': tensor,
         });
       } finally {

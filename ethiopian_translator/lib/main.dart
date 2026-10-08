@@ -258,23 +258,25 @@ class _ConversationPageState extends State<ConversationPage>
       if (mounted) setState(() => _offlineReady = true);
       debugPrint('[Offline] NMT tokenizer ready ✓');
 
-      // Pre-warm STT and NMT neural inference sessions in the background
-      // so neither triggers disk I/O or memory allocation pauses during translation
+      // Pre-warm STT session in the background so speech recognition is instantaneous
       Future.delayed(const Duration(milliseconds: 300), () async {
         try {
           debugPrint('[Offline] Pre-warming STT session in background...');
           await _offlineStt.initialize();
           debugPrint('[Offline] STT session ready ✓');
+
+          // Pre-warm NMT sessions in background so translations are instantaneous with 0-second UI freeze
+          Future.delayed(const Duration(milliseconds: 500), () async {
+            try {
+              debugPrint('[Offline] Pre-warming NMT model sessions in background...');
+              await _offlineNmt.initialize();
+              debugPrint('[Offline] NMT model sessions ready ✓');
+            } catch (e) {
+              debugPrint('[Offline] NMT pre-warm note: $e');
+            }
+          });
         } catch (e) {
           debugPrint('[Offline] STT pre-warm note: $e');
-        }
-
-        try {
-          debugPrint('[Offline] Pre-warming NMT sessions in background...');
-          await _offlineNmt.initialize();
-          debugPrint('[Offline] NMT sessions ready ✓');
-        } catch (e) {
-          debugPrint('[Offline] NMT pre-warm note: $e');
         }
       });
     } catch (e) {

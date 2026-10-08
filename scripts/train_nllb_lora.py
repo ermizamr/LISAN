@@ -111,6 +111,10 @@ def parse_args():
                         help="Cap training samples to fit within fast GPU sessions")
     parser.add_argument("--save_steps", type=int, default=200,
                         help="Checkpoint save interval in steps")
+    parser.add_argument("--drive_dir", type=str, default=None,
+                        help="Google Drive backup directory (e.g. /content/drive/MyDrive/LISAN_BACKUP)")
+    parser.add_argument("--resume", action="store_true", default=False,
+                        help="Resume training from latest checkpoint if available")
     return parser.parse_args()
 
 
@@ -436,15 +440,82 @@ def main():
 
     trainer = Seq2SeqTrainer(**trainer_kwargs)
 
+    # 8.5 Setup Google Drive Sync Callback & Checkpoint Auto-Resume
+    from transformers import TrainerCallback
+    import shutil
+
+    drive_backup_dir = None
+    if args.drive_dir:
+        drive_backup_dir = Path(args.drive_dir)
+    elif Path("/content/drive/MyDrive").exists():
+        drive_backup_dir = Path("/content/drive/MyDrive/LISAN_BACKUP")
+
+    if drive_backup_dir:
+        drive_backup_dir.mkdir(parents=True, exist_ok=True)
+        print(f"\n[Google Drive Backup] Active! Securing models to: {drive_backup_dir}")
+
+        class DriveSyncCallback(TrainerCallback):
+            def __init__(self, target_dir: Path, source_dir: Path):
+                self.target_dir = target_dir
+                self.source_dir = source_dir
+                self.target_dir.mkdir(parents=True, exist_ok=True)
+
+            def on_save(self, args, state, control, **kwargs):
+                print(f"\n[Drive Sync] Live syncing latest checkpoint to Google Drive...")
+                try:
+                    for ckpt in self.source_dir.glob("checkpoint-*"):
+                        dst = self.target_dir / ckpt.name
+                        if not dst.exists():
+                            shutil.copytree(ckpt, dst, dirs_exist_ok=True)
+                    print("[Drive Sync] ✓ Checkpoint secured in Google Drive!")
+                except Exception as e:
+                    print(f"[Drive Sync] Warning: {e}")
+
+        trainer.add_callback(DriveSyncCallback(drive_backup_dir / "checkpoints", Path(args.output_dir)))
+
+    # Determine if resuming from checkpoint
+    resume_checkpoint = None
+    local_ckpts = sorted(
+        list(Path(args.output_dir).glob("checkpoint-*")),
+        key=lambda p: int(p.name.split("-")[1]) if "-" in p.name and p.name.split("-")[1].isdigit() else 0
+    )
+    if args.resume or local_ckpts:
+        if local_ckpts:
+            resume_checkpoint = str(local_ckpts[-1])
+            print(f"✓ Resuming training from local checkpoint: {resume_checkpoint}")
+        elif drive_backup_dir and (drive_backup_dir / "checkpoints").exists():
+            drive_ckpts = sorted(
+                list((drive_backup_dir / "checkpoints").glob("checkpoint-*")),
+                key=lambda p: int(p.name.split("-")[1]) if "-" in p.name and p.name.split("-")[1].isdigit() else 0
+            )
+            if drive_ckpts:
+                latest_drive = drive_ckpts[-1]
+                local_restore = Path(args.output_dir) / latest_drive.name
+                shutil.copytree(latest_drive, local_restore, dirs_exist_ok=True)
+                resume_checkpoint = str(local_restore)
+                print(f"✓ Restored and resuming from Google Drive checkpoint: {resume_checkpoint}")
+
     # 9. Train
     print("\nStarting LoRA Fine-Tuning...")
-    trainer.train()
+    trainer.train(resume_from_checkpoint=resume_checkpoint)
 
     # 10. Save LoRA Adapter
     print(f"\nSaving LoRA adapter to {args.output_dir}...")
     model.save_pretrained(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
     print("✓ LoRA Adapter weights saved.")
+
+    if drive_backup_dir:
+        print(f"[Drive Sync] Copying final LoRA adapter to Google Drive...")
+        try:
+            drive_adapter = drive_backup_dir / "nllb_lora_adapter"
+            drive_adapter.mkdir(parents=True, exist_ok=True)
+            for f in Path(args.output_dir).glob("*"):
+                if f.is_file():
+                    shutil.copy2(f, drive_adapter / f.name)
+            print(f"[Drive Sync] ✓ Final LoRA adapter permanently saved at {drive_adapter}")
+        except Exception as e:
+            print(f"[Drive Sync] Adapter note: {e}")
 
     # 11. Merge and Export
     if args.merge_and_export:
@@ -467,6 +538,40 @@ def main():
                 print("✓ Mobile ONNX INT8 export complete!")
             except Exception as e:
                 print(f"⚠️ ONNX export note: {e}")
+
+        if drive_backup_dir:
+            try:
+                # Copy merged PyTorch model to Drive
+                if Path(args.merged_dir).exists():
+                    print(f"[Drive Sync] Copying merged PyTorch model to Google Drive...")
+                    drive_merged = drive_backup_dir / "nllb_merged"
+                    drive_merged.mkdir(parents=True, exist_ok=True)
+                    for f in Path(args.merged_dir).glob("*"):
+                        if f.is_file():
+                            shutil.copy2(f, drive_merged / f.name)
+                    print(f"[Drive Sync] ✓ Merged model saved at {drive_merged}")
+
+                # Copy CTranslate2 model to Drive
+                if Path(args.export_c2_dir).exists():
+                    drive_c2 = drive_backup_dir / "nllb_int8"
+                    shutil.copytree(Path(args.export_c2_dir), drive_c2, dirs_exist_ok=True)
+                    print(f"[Drive Sync] ✓ CTranslate2 model saved at {drive_c2}")
+
+                # Copy mobile ONNX models to Drive
+                onnx_src = ROOT_DIR / "onnx_models"
+                if onnx_src.exists():
+                    drive_onnx = drive_backup_dir / "onnx_models"
+                    drive_onnx.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(onnx_src, drive_onnx, dirs_exist_ok=True)
+                    print(f"[Drive Sync] ✓ Mobile ONNX models copied to {drive_onnx}")
+
+                # Create 1-click download zip directly on Google Drive
+                zip_path = drive_backup_dir / "lisan_mobile_onnx_models"
+                if onnx_src.exists():
+                    shutil.make_archive(str(zip_path), "zip", str(onnx_src))
+                    print(f"\n🎉 [Drive Sync] ONE-CLICK DOWNLOAD READY IN GOOGLE DRIVE: {zip_path}.zip")
+            except Exception as e:
+                print(f"[Drive Sync] Post-export backup note: {e}")
 
     # 12. Evaluate Benchmarks
     if args.eval_benchmarks:
