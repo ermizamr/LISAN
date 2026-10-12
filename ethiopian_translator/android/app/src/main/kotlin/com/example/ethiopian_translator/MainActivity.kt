@@ -29,9 +29,31 @@ class MainActivity : FlutterActivity(), TextToSpeech.OnInitListener {
                             "som" -> Locale("so", "SO")
                             else -> Locale.US
                         }
-                        tts?.language = locale
-                        val speakStatus = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "lisan_utterance")
-                        result.success(speakStatus == TextToSpeech.SUCCESS)
+                        val avail = tts?.isLanguageAvailable(locale) ?: TextToSpeech.LANG_NOT_SUPPORTED
+                        if (avail >= TextToSpeech.LANG_AVAILABLE) {
+                            tts?.language = locale
+                            val speakStatus = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "lisan_utterance")
+                            result.success(speakStatus == TextToSpeech.SUCCESS)
+                        } else {
+                            // Engine does not support this language offline
+                            result.success(false)
+                        }
+                    } else {
+                        result.success(false)
+                    }
+                }
+                "isLanguageSupported" -> {
+                    val lang = call.argument<String>("lang") ?: "en"
+                    if (isTtsReady) {
+                        val locale = when (lang) {
+                            "amh" -> Locale("am", "ET")
+                            "orm" -> Locale("om", "ET")
+                            "tir" -> Locale("ti", "ET")
+                            "som" -> Locale("so", "SO")
+                            else -> Locale.US
+                        }
+                        val avail = tts?.isLanguageAvailable(locale) ?: TextToSpeech.LANG_NOT_SUPPORTED
+                        result.success(avail >= TextToSpeech.LANG_AVAILABLE)
                     } else {
                         result.success(false)
                     }

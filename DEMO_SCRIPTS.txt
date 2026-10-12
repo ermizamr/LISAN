@@ -1,0 +1,136 @@
+================================================================================
+                    LISAN DEMO SCRIPTS (ACTOR COPY)
+================================================================================
+INSTRUCTIONS FOR RECORDING:
+1. One person taps the mic button for their language, speaks their line, then releases.
+2. Wait 1-2 seconds for LISAN to speak the translation out loud.
+3. The next person taps their mic button and speaks.
+4. Speak naturally at a normal conversational pace.
+
+================================================================================
+SCENARIO 1: RURAL CLINIC TRIAGE
+Languages: Amharic (Doctor) <-> Afaan Oromoo (Patient)
+Mode: Conversation Mode
+================================================================================
+
+[TURN 1]
+👨‍⚕️ DOCTOR (Amharic):
+"እንደምን ዋልክ አባቴ፣ ዛሬ ምንህን ነው የሚያምህ?"
+(Meaning: Good day father, what is bothering you today?)
+--> Phone speaks Afaan Oromoo: "Akkam oolte abbaa koo, har'a maaltu si dhibe?"
+
+[TURN 2]
+👴 PATIENT (Afaan Oromoo):
+"Baga nagaan jirtu doktoor. Guyyaa sadiif mataan na dhukkuba, akkasumas ho'i guddaan na qabeera."
+(Meaning: Greetings doctor. For three days my head has been hurting, and I have had a severe fever.)
+--> Phone speaks Amharic: "ጤና ይስጥልኝ ዶክተር። ለሦስት ቀናት ራሴን ያመኛል፣ እንዲሁም ከፍተኛ ትኩሳት ይዞኛል።"
+
+[TURN 3]
+👨‍⚕️ DOCTOR (Amharic):
+"ብርድ ብርድ ማለት፣ ማቅለሽለሽ ወይም ሳል አለብህ?"
+(Meaning: Do you feel chills, nausea, or coughing?)
+--> Phone speaks Afaan Oromoo: "Dhaamochi, balaqqamsi ykn qufaan sitti jiraa?"
+
+[TURN 4]
+👴 PATIENT (Afaan Oromoo):
+"Qufaan hin jiru, garuu galgala galgala qorri guddaan na qaba, qaamni koos ni hollata."
+(Meaning: No cough, but every evening I feel intense shivering and my body shakes.)
+--> Phone speaks Amharic: "ሳል የለም፣ ነገር ግን ማታ ማታ ብርቱ ብርድ ይይዘኛል፣ ሰውነቴም ይንቀጠቀጣል።"
+
+[TURN 5]
+👨‍⚕️ DOCTOR (Amharic):
+"የወባ በሽታ መኖሩን ለማረጋገጥ አሁን ፈጣን የጣት ደም ምርመራ እናደርጋለን።"
+(Meaning: To verify malaria, we will do a rapid finger-prick blood test right now.)
+--> Phone speaks Afaan Oromoo: "Busaadhaa fi dhibee biraa mirkaneeffachuuf amma qorannoo dhiigaa ariifachiisaa siif goona."
+
+[TURN 6]
+👨‍⚕️ DOCTOR (Amharic):
+"የምርመራው ውጤት መጥቷል፤ ሳንባህ ጤነኛ ነው፣ ነገር ግን ደምህ ውስጥ ወባ ተገኝቷል።"
+(Meaning: The test results are in; your lungs are healthy, but malaria was found in your blood.)
+--> Phone speaks Afaan Oromoo: "Firiin qorannoo dhufeera; sombi kee nagaadha, garuu dhiiga kee keessatti busaan argameera."
+
+[TURN 7]
+👨‍⚕️ DOCTOR (Amharic):
+"ይህንን የወባ መድሃኒት ለሦስት ቀናት ከምግብ በኋላ በቀን ሁለት ጊዜ ውሰድ።"
+(Meaning: Take this malaria medication for three days after meals, twice a day.)
+--> Phone speaks Afaan Oromoo: "Qoricha busaa kana guyyoota sadiif nyaata booda guyyaatti yeroo lama fudhadhu."
+
+[TURN 8]
+👴 PATIENT (Afaan Oromoo):
+"Galatoomi doktoor. Hojii maasii dhiisee bishaan danfe qofa dhuguun qabaa?"
+(Meaning: Thank you doctor. Should I stop farm work and only drink boiled water?)
+--> Phone speaks Amharic: "አመሰግናለሁ ዶክተር። የእርሻ ስራ ትቼ የፈላ ውሃ ብቻ መጠጣት አለብኝ?"
+
+[TURN 9]
+👨‍⚕️ DOCTOR (Amharic):
+"አዎ፣ በደንብ እረፍት አድርግ፣ ብዙ ውሃ ጠጣ፣ ትኩሳቱ ካልቀነሰም ተመልሰህ ና።"
+(Meaning: Yes, get plenty of rest, drink plenty of water, and come back if the fever doesn't drop.)
+--> Phone speaks Afaan Oromoo: "Eeyyee, sirriitti boqodhu, bishaan baay'ee dhugi, yoo ho'i hin hir'anne immoo deebi'ii kottu."
+
+[TURN 10]
+👴 PATIENT (Afaan Oromoo):
+"Fayyaa ta'aa doktoor, waaqayyo qoricha kana eebba haa godhu."
+(Meaning: Stay healthy doctor, may God bless this medicine with healing.)
+--> Phone speaks Amharic: "ጤና ይስጥልኝ ዶክተር፣ እግዚአብሔር ይህንን መድሃኒት ፈውስ ያድርገው።"
+
+
+================================================================================
+SCENARIO 2: TOURIST IN ANCIENT AXUM
+Languages: English (Tourist) <-> Tigrinya (Local Guide)
+Mode: Translator / Conversation Mode
+================================================================================
+
+[TURN 1]
+🌍 TOURIST (English):
+"Hello! This ancient granite obelisk is breathtaking. How old is it?"
+--> Phone speaks Tigrinya: "ሰላም! እዚ ጥንታዊ ናይ ሓወልቲ ግራናይት ኣዝዩ ዘደንቕ እዩ። ዕድሚኡ ክንደይ ዓመት እዩ?"
+
+[TURN 2]
+🇪🇹 GUIDE (Tigrinya):
+"እንቋዕ ብደሓን መጻእኪ ናብ ጥንታዊት ከተማ ኣክሱም። እዚ ሓወልቲ ኣብ ራብዓይ ክፍለ ዘመን ብንጉሥ ኢዛና እዩ ተሃኒጹ።"
+(Meaning: Welcome to the ancient city of Axum. This obelisk was erected in the fourth century by King Ezana.)
+--> Phone speaks English: "Welcome to the ancient city of Axum. This obelisk was erected in the fourth century by King Ezana."
+
+[TURN 3]
+🌍 TOURIST (English):
+"It is carved from a single piece of stone! How did ancient engineers transport something so massive?"
+--> Phone speaks Tigrinya: "ካብ ሓደ ዓቢ እምኒ ጥራይ ዝተቐርጸ እዩ! ጥንታውያን መሃንድሳት ከመይ ገይሮም እዮም ከምዚ ዝኣመሰለ ከቢድ እምኒ ኣጓዒዞምዎ?"
+
+[TURN 4]
+🇪🇹 GUIDE (Tigrinya):
+"ካብ ኣርባዕተ ኪሎ ሜትር ርሕቀት ብዝነበሩ ሓርማዛትን ገዘፍቲ ዕንጨይትን ተጠቒሞም ብዝተዳለወ ጐደና ኣንከራፊፎም እዮም ኣምጺኦምዎ።"
+(Meaning: They transported it from 4 km away using elephants and massive wooden rollers along prepared ramps.)
+--> Phone speaks English: "They transported it from four kilometers away using elephants and massive wooden rollers along prepared ramps."
+
+[TURN 5]
+🌍 TOURIST (English):
+"I also noticed the inscriptions nearby in Ge'ez, Sabaean, and Greek. Why three languages?"
+--> Phone speaks Tigrinya: "ኣብ ጥቓኡ ዘለዉ ጽሑፋት ብግእዝ፡ ሳባውያንን ግሪኽን ተጻሒፎም ርእየዮም። ንምንታይ እዩ ብሰለስተ ቋንቋታት ተጻሒፉ?"
+
+[TURN 6]
+🇪🇹 GUIDE (Tigrinya):
+"ንጉሥ ኢዛና ብዓለም ደረጃ ዝነበሩ ናይ ንግዲ መሻርኽቱ ካብ ሮማን ደቡብ ዓረብን ንክርድእዎ ኢሉ እዩ ብሰለስተ ቋንቋታት ጽሒፍዎ።"
+(Meaning: King Ezana wrote it in 3 languages so trade partners from Rome and South Arabia could understand his decrees.)
+--> Phone speaks English: "King Ezana wrote it in three languages so international trade partners from Rome and South Arabia could understand his royal decrees."
+
+[TURN 7]
+🌍 TOURIST (English):
+"Is the Church of Our Lady Mary of Zion nearby? Can visitors see the Ark of the Covenant?"
+--> Phone speaks Tigrinya: "ቤተክርስትያን ቅድስት ማርያም ጽዮን ኣብዚ ጥቓ ድዩ ዘሎ? በጻሕቲ ነቲ ታቦተ ጽዮን ክርእይዎ ይፍቀድ ድዩ?"
+
+[TURN 8]
+🇪🇹 GUIDE (Tigrinya):
+"እወ ኣብዚ ጥቓ እዩ። እቲ ታቦት ብሓደ ውፉይ መነኮስ ጥራይ እዩ ዝሕሎ፡ ንሕና ግን ነቲ ታሪኻዊ ቤተ መዘክርን ጥንታውያን ዘውድታትን ክንርኢ ንኽእል ኢና።"
+(Meaning: Yes, it is nearby. The Ark is guarded solely by one monk, but we can visit the museum to see ancient crowns and manuscripts.)
+--> Phone speaks English: "Yes, it is right nearby. The Ark is guarded solely by one consecrated monk, but we can visit the historical museum to see the ancient crowns and manuscripts."
+
+[TURN 9]
+🇪🇹 GUIDE (Tigrinya):
+"ሕጂ ድማ ንዑ ኣብዚ ጽላል ኮፍ ኢልና ባህላዊ ቡን ኣክሱም ምስ ጥዑም ዕጣን ንስተ።"
+(Meaning: Now, let us sit in the shade and enjoy traditional Axumite coffee with fragrant frankincense.)
+--> Phone speaks English: "Now, let us sit in the shade and enjoy traditional Axumite coffee with fragrant frankincense."
+
+[TURN 10]
+🌍 TOURIST (English):
+"That sounds wonderful! Thank you so much for your generous hospitality."
+--> Phone speaks Tigrinya: "ኣዝዩ ባህ ዘብል እዩ! ስለቲ ለጋስ ኣቀባብላኻ ኣዚየ እየ ዘመስግነካ።"

@@ -11,14 +11,27 @@ class TranslatorApi {
   Uri baseUri;
   final http.Client _client;
 
+  static final List<Uri> candidateBaseUris = [
+    Uri.parse('http://127.0.0.1:8000'),
+    Uri.parse('http://192.168.1.3:8000'),
+    Uri.parse('http://10.0.2.2:8000'),
+  ];
 
   Future<bool> isReady() async {
-    final response = await _client.get(baseUri.resolve('/health'));
-    if (response.statusCode != 200) {
-      return false;
+    final urisToTry = [baseUri, ...candidateBaseUris.where((u) => u != baseUri)];
+    for (final candidate in urisToTry) {
+      try {
+        final response = await _client.get(candidate.resolve('/health')).timeout(const Duration(seconds: 3));
+        if (response.statusCode == 200) {
+          final body = jsonDecode(response.body) as Map<String, dynamic>;
+          if (body['ready'] == true) {
+            baseUri = candidate;
+            return true;
+          }
+        }
+      } catch (_) {}
     }
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    return body['ready'] == true;
+    return false;
   }
 
   Future<Map<String, LanguageInfo>> fetchLanguages() async {
@@ -45,17 +58,39 @@ class TranslatorApi {
     String? sessionId,
     String formality = 'auto',
   }) async {
-    final response = await _client.post(
-      baseUri.resolve('/translate/text'),
-      headers: {'content-type': 'application/json'},
-      body: jsonEncode({
-        'text': text,
-        'src': source,
-        'tgt': target,
-        'session_id': ?sessionId,
-        'formality': formality,
-      }),
-    );
+    final payload = jsonEncode({
+      'text': text,
+      'src': source,
+      'tgt': target,
+      'session_id': sessionId,
+      'formality': formality,
+    });
+
+    http.Response? response;
+    dynamic lastError;
+    final urisToTry = [baseUri, ...candidateBaseUris.where((u) => u != baseUri)];
+
+    for (final candidate in urisToTry) {
+      try {
+        final res = await _client.post(
+          candidate.resolve('/translate/text'),
+          headers: {'content-type': 'application/json'},
+          body: payload,
+        ).timeout(const Duration(seconds: 15));
+        if (res.statusCode == 200) {
+          response = res;
+          baseUri = candidate;
+          break;
+        }
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    if (response == null) {
+      throw lastError ?? Exception('Failed to connect to backend server');
+    }
+
     _ensureSuccess(response);
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final rawReplies = (body['suggested_replies'] as List<dynamic>?) ?? [];
@@ -97,17 +132,36 @@ class TranslatorApi {
     if (sessionId != null) {
       qParams['session_id'] = sessionId;
     }
-    final request = http.MultipartRequest(
-      'POST',
-      baseUri.replace(
-        path: '${baseUri.path}/translate/audio',
-        queryParameters: qParams,
-      ),
-    )..files.add(await http.MultipartFile.fromPath('file', filePath));
 
-    final response = await http.Response.fromStream(
-      await _client.send(request),
-    );
+    http.Response? response;
+    dynamic lastError;
+    final urisToTry = [baseUri, ...candidateBaseUris.where((u) => u != baseUri)];
+
+    for (final candidate in urisToTry) {
+      try {
+        final request = http.MultipartRequest(
+          'POST',
+          candidate.resolve('/translate/audio').replace(
+            queryParameters: qParams,
+          ),
+        )..files.add(await http.MultipartFile.fromPath('file', filePath));
+
+        final streamed = await _client.send(request).timeout(const Duration(seconds: 20));
+        final res = await http.Response.fromStream(streamed);
+        if (res.statusCode == 200) {
+          response = res;
+          baseUri = candidate;
+          break;
+        }
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    if (response == null) {
+      throw lastError ?? Exception('Failed to connect to backend server');
+    }
+
     _ensureSuccess(response);
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final rawReplies = (body['suggested_replies'] as List<dynamic>?) ?? [];

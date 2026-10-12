@@ -8,7 +8,7 @@ void main() {
     final tokenizer = OfflineNllbTokenizer();
     final ids = await tokenizer.encode('Hello', 'eng_Latn');
 
-    expect(ids.first, 256047);
+    expect(ids.first, 26127);
     expect(ids.last, 2);
     expect(await tokenizer.decode(ids), contains('Hello'));
   });
@@ -16,7 +16,7 @@ void main() {
   test('encodes and decodes Amharic sentence', () async {
     final tokenizer = OfflineNllbTokenizer();
     final ids = await tokenizer.encode('ሰላም እንዴት ነህ?', 'amh_Ethi');
-    expect(ids, [256009, 84920, 35568, 155428, 248130, 2]);
+    expect(ids, [26126, 14403, 8577, 20058, 25617, 2]);
     final decoded = await tokenizer.decode(ids.sublist(1, ids.length - 1));
     expect(decoded, 'ሰላም እንዴት ነህ?');
   });
@@ -24,7 +24,7 @@ void main() {
   test('encodes and decodes Tigrinya sentence', () async {
     final tokenizer = OfflineNllbTokenizer();
     final ids = await tokenizer.encode('ሰላም ከመይ ኣለኻ?', 'tir_Ethi');
-    expect(ids.first, 256176);
+    expect(ids.first, 26130);
     expect(ids.last, 2);
     final decoded = await tokenizer.decode(ids.sublist(1, ids.length - 1));
     expect(decoded, 'ሰላም ከመይ ኣለኻ?');
@@ -33,7 +33,7 @@ void main() {
   test('encodes and decodes Oromo sentence', () async {
     final tokenizer = OfflineNllbTokenizer();
     final ids = await tokenizer.encode('Nagaa akkam jirta?', 'gaz_Latn');
-    expect(ids.first, 256135);
+    expect(ids.first, 26128);
     expect(ids.last, 2);
     final decoded = await tokenizer.decode(ids.sublist(1, ids.length - 1));
     expect(decoded, 'Nagaa akkam jirta?');
@@ -42,7 +42,7 @@ void main() {
   test('encodes and decodes Somali sentence', () async {
     final tokenizer = OfflineNllbTokenizer();
     final ids = await tokenizer.encode('Sidee tahay?', 'som_Latn');
-    expect(ids.first, 256159);
+    expect(ids.first, 26129);
     expect(ids.last, 2);
     final decoded = await tokenizer.decode(ids.sublist(1, ids.length - 1));
     expect(decoded, 'Sidee tahay?');

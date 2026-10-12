@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:onnxruntime/onnxruntime.dart';
 import 'package:path_provider/path_provider.dart';
+import 'offline_ort_config.dart';
 
 import 'offline_nllb_tokenizer.dart';
 import 'offline_translation_memory.dart';
@@ -32,46 +33,21 @@ class OfflineNllbTranslator {
   static const int _bosTokenId = 0; // <s>
   static const int _eosTokenId = 2; // </s>
   static const int _padTokenId = 1; // <pad>
-  static const int _maxNewTokens = 36;
-
-  OrtSession? _encoderSession;
-  OrtSession? _decoderSession;
+  static const int _maxNewTokens = 24;
 
   final OfflineNllbTokenizer _tokenizer = OfflineNllbTokenizer();
 
-  bool get isInitialized => _encoderSession != null;
+  bool get isInitialized => true;
 
   Future<void> initializeTokenizer() => _tokenizer.initialize();
 
   Future<void> initialize() async {
-    if (_encoderSession != null) return;
-
     final dir = await getApplicationSupportDirectory();
-
-    // Copy models from assets to disk (ONNX Runtime needs file paths)
-    final encoderFile = await _ensureModel(
-      dir,
-      _encoderAsset,
-      'nllb_encoder.onnx',
-    );
-    final decoderFile = await _ensureModel(
-      dir,
-      _decoderAsset,
-      'nllb_decoder.onnx',
-    );
-
-    final options = OrtSessionOptions()
-      ..setIntraOpNumThreads(4)
-      ..setInterOpNumThreads(1)
-      ..setSessionGraphOptimizationLevel(GraphOptimizationLevel.ortEnableBasic);
-    debugPrint('[Offline NMT] Loading encoder session...');
-    _encoderSession = OrtSession.fromFile(encoderFile, options);
-    debugPrint('[Offline NMT] Loading decoder session...');
-    _decoderSession = OrtSession.fromFile(decoderFile, options);
-    debugPrint('[Offline NMT] Initializing tokenizer...');
+    await _ensureModel(dir, _encoderAsset, 'nllb_encoder.onnx');
+    await _ensureModel(dir, _decoderAsset, 'nllb_decoder.onnx');
     await _tokenizer.initialize();
-    debugPrint('[Offline NMT] All NMT sessions loaded successfully ✓');
   }
+
 
   Future<File> _ensureModel(
     Directory dir,
@@ -114,6 +90,7 @@ class OfflineNllbTranslator {
     String text, {
     required String sourceLang,
     required String targetLang,
+    bool bypassTm = false,
   }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return '';
@@ -124,17 +101,21 @@ class OfflineNllbTranslator {
     }
 
     // High-speed Translation Memory & Curated Medical/Conversational Glossary
-    final tmHit = OfflineTranslationMemory.lookup(
-      trimmed,
-      sourceLang: sourceLang,
-      targetLang: targetLang,
-    );
-    if (tmHit != null) {
-      debugPrint('[Offline TM Hit] "$trimmed" -> "$tmHit"');
-      return tmHit;
+    if (!bypassTm) {
+      final tmHit = OfflineTranslationMemory.lookupWithRepair(
+        trimmed,
+        sourceLang: sourceLang,
+        targetLang: targetLang,
+      );
+      if (tmHit != null) {
+        debugPrint('[Offline TM Hit] "$trimmed" -> "${tmHit.translation}" (Repaired: "${tmHit.repairedSource}")');
+        return tmHit.translation;
+      }
     }
 
-    await initialize();
+    final dir = await getApplicationSupportDirectory();
+    final encoderFile = await _ensureModel(dir, _encoderAsset, 'nllb_encoder.onnx');
+    final decoderFile = await _ensureModel(dir, _decoderAsset, 'nllb_decoder.onnx');
 
     final sourceToken =
         kNllbLangTokens[sourceLang] ??
@@ -153,79 +134,112 @@ class OfflineNllbTranslator {
     final inputIds = await _tokenizer.encode(inputToEncode, sourceToken);
     final seqLen = inputIds.length;
 
-    // 2. Encode
+    // 2. Sequential Step 1: Run Encoder Session Only
     final inputIdsTensor = _int64Tensor(inputIds, [1, seqLen]);
     final attentionMask = _int64Tensor(List.filled(seqLen, 1), [1, seqLen]);
 
-    final encRunOptions = OrtRunOptions();
-    List<OrtValue?>? encoderOutputs;
+    dynamic rawEncoderHiddenStates;
+    final encOptions = OfflineOrtConfig.createOptions(
+      intraOpThreads: 2,
+      interOpThreads: 1,
+    );
+    OrtSession? encoderSession;
     try {
-      encoderOutputs = _encoderSession!.run(
-        encRunOptions,
-        {
-          'input_ids': inputIdsTensor,
-          'attention_mask': attentionMask,
-        },
-      );
-    } finally {
-      encRunOptions.release();
-      inputIdsTensor.release();
-    }
-
-    // encoder_hidden_states is the first output
-    final encoderHiddenStates = encoderOutputs?.first;
-
-    // 3. Get target lang token id for forced prompt
-    final targetLangId = _tokenizer.tokenToId(targetToken) ?? _bosTokenId;
-
-    // 4. Autoregressive decode using decoder_model
-    // NLLB generation starts with [2 (</s>), targetLangId]
-    final currIds = <int>[_eosTokenId, targetLangId];
-
-    final runOptions = OrtRunOptions();
-    try {
-      for (var step = 0; step < _maxNewTokens; step++) {
-        final decoderInputIds = _int64Tensor(currIds, [1, currIds.length]);
-
-        final stepOutputs = _decoderSession!.run(
-          runOptions,
+      debugPrint('[Offline NMT] [Governor] Loading encoder session...');
+      encoderSession = OrtSession.fromFile(encoderFile, encOptions);
+      final encRunOptions = OrtRunOptions();
+      try {
+        final encoderOutputs = encoderSession.run(
+          encRunOptions,
           {
-            'input_ids': decoderInputIds,
-            'encoder_attention_mask': attentionMask,
-            'encoder_hidden_states': encoderHiddenStates!,
+            'input_ids': inputIdsTensor,
+            'attention_mask': attentionMask,
           },
         );
-        decoderInputIds.release();
-
-        if (stepOutputs == null || stepOutputs.isEmpty) break;
-
-        final logitsTensor = stepOutputs.first;
-        // Release any past KV outputs to avoid native memory buildup
-        for (var i = 1; i < stepOutputs.length; i++) {
-          stepOutputs[i]?.release();
+        rawEncoderHiddenStates = encoderOutputs.first?.value;
+        for (final out in encoderOutputs) {
+          out?.release();
         }
-
-        final logits = logitsTensor?.value;
-        logitsTensor?.release();
-
-        final nextTokenId = _argmax(
-          logits,
-          currIds.length - 1,
-          generatedIds: currIds,
-        );
-        currIds.add(nextTokenId);
-
-        if (nextTokenId == _eosTokenId || nextTokenId == _padTokenId) {
-          break;
-        }
+      } finally {
+        encRunOptions.release();
       }
     } finally {
-      runOptions.release();
+      encoderSession?.release();
+      encoderSession = null;
+      encOptions.release();
+      inputIdsTensor.release();
+      OfflineOrtConfig.trimNativeMemory();
+      debugPrint('[Offline NMT] [Governor] Encoder freed & native heap trimmed ✓');
     }
 
-    // Cleanup encoder tensors
-    encoderHiddenStates?.release();
-    attentionMask.release();
+    if (rawEncoderHiddenStates == null) {
+      attentionMask.release();
+      throw StateError('Encoder produced null hidden states');
+    }
+
+    // 3. Sequential Step 2: Prepare Target Framing & Decoder Input
+    final targetLangId = _tokenizer.tokenToId(targetToken) ?? _bosTokenId;
+    final currIds = <int>[_eosTokenId, targetLangId];
+
+    final flattenedHidden = _flattenFloats(rawEncoderHiddenStates);
+    final hiddenTensor = _float32Tensor(flattenedHidden, [1, seqLen, 1024]);
+
+    final decOptions = OfflineOrtConfig.createOptions(
+      intraOpThreads: 2,
+      interOpThreads: 1,
+    );
+    OrtSession? decoderSession;
+    try {
+      debugPrint('[Offline NMT] [Governor] Loading decoder session...');
+      decoderSession = OrtSession.fromFile(decoderFile, decOptions);
+      final runOptions = OrtRunOptions();
+      try {
+        for (var step = 0; step < _maxNewTokens; step++) {
+          final decoderInputIds = _int64Tensor(currIds, [1, currIds.length]);
+
+          final stepOutputs = decoderSession.run(
+            runOptions,
+            {
+              'input_ids': decoderInputIds,
+              'encoder_attention_mask': attentionMask,
+              'encoder_hidden_states': hiddenTensor,
+            },
+          );
+          decoderInputIds.release();
+
+          if (stepOutputs.isEmpty) break;
+
+          final logitsTensor = stepOutputs.first;
+          for (var i = 1; i < stepOutputs.length; i++) {
+            stepOutputs[i]?.release();
+          }
+
+          final logits = logitsTensor?.value;
+          logitsTensor?.release();
+
+          final nextTokenId = _argmax(
+            logits,
+            currIds.length - 1,
+            generatedIds: currIds,
+          );
+          currIds.add(nextTokenId);
+
+          if (nextTokenId == _eosTokenId || nextTokenId == _padTokenId) {
+            break;
+          }
+        }
+      } finally {
+        runOptions.release();
+      }
+    } finally {
+      hiddenTensor.release();
+      decoderSession?.release();
+      decoderSession = null;
+      decOptions.release();
+      attentionMask.release();
+      OfflineOrtConfig.trimNativeMemory();
+      debugPrint('[Offline NMT] [Governor] Decoder freed & native heap trimmed ✓');
+    }
 
     // 5. Decode generated tokens (skip initial prompt [2, targetLangId])
     final resultTokens = currIds.length > 2 ? currIds.sublist(2) : currIds;
@@ -280,15 +294,33 @@ class OfflineNllbTranslator {
     return best;
   }
 
+  static List<double> _flattenFloats(dynamic value) {
+    final result = <double>[];
+    void recurse(dynamic v) {
+      if (v is List) {
+        for (final item in v) {
+          recurse(item);
+        }
+      } else if (v is num) {
+        result.add(v.toDouble());
+      }
+    }
+    recurse(value);
+    return result;
+  }
+
+  OrtValueTensor _float32Tensor(List<double> data, List<int> shape) {
+    final typed = Float32List.fromList(data);
+    return OrtValueTensor.createTensorWithDataList([typed], shape);
+  }
+
   OrtValueTensor _int64Tensor(List<int> data, List<int> shape) {
     final typed = Int64List.fromList(data);
     return OrtValueTensor.createTensorWithDataList(typed, shape);
   }
 
   void dispose() {
-    _encoderSession?.release();
-    _decoderSession?.release();
-    _encoderSession = null;
-    _decoderSession = null;
+    OfflineOrtConfig.trimNativeMemory();
   }
+
 }

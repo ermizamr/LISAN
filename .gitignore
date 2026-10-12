@@ -58,3 +58,7 @@ build/
 *.swo
 .DS_Store
 Thumbs.db
+
+# Separate standalone repo
+landing/
+output_tts/

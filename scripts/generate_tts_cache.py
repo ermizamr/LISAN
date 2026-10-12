@@ -9,7 +9,11 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 # Import corpora from generate_dart_tm
-from scripts.generate_dart_tm import CLINIC_CORPUS, ROAD_CORPUS, CAFE_CORPUS, MARKET_CORPUS
+from scripts.generate_dart_tm import (
+    CLINIC_CORPUS, ROAD_CORPUS, CAFE_CORPUS, MARKET_CORPUS,
+    DEEP_ETHIOPIAN_CORPUS, RURAL_CLINIC_DIALOGUE, AXUM_TOURIST_DIALOGUE,
+    custom_phrases
+)
 from ai_pipeline.pipeline import MMSTTSEngine
 
 def text_hash(lang: str, text: str) -> str:
@@ -20,7 +24,11 @@ def main():
     out_dir = ROOT_DIR / "output_tts" / "cache"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    all_corpora = CLINIC_CORPUS + ROAD_CORPUS + CAFE_CORPUS + MARKET_CORPUS
+    all_corpora = (
+        CLINIC_CORPUS + ROAD_CORPUS + CAFE_CORPUS + MARKET_CORPUS +
+        DEEP_ETHIOPIAN_CORPUS + RURAL_CLINIC_DIALOGUE + AXUM_TOURIST_DIALOGUE +
+        custom_phrases
+    )
     
     unique_items = {}
     for item in all_corpora:
@@ -45,14 +53,24 @@ def main():
         ('amh', 'ይቅርታ'),
         ('amh', 'ስምህ ማን ይባላል?'),
         ('amh', 'እባክዎ ይድገሙልኝ'),
-        ('amh', 'አዎ'),
-        ('amh', 'አይደለም'),
+        ('amh', 'ሆስፒታሉ የት ነው?'),
+        ('amh', 'ሆስፒታሉ የት ይገኛል?'),
+        ('amh', 'መፀዳጃ ቤት የት ነው?'),
+        ('amh', 'ሽንት ቤት የት ነው?'),
+        ('amh', 'ውሃ እፈልጋለሁ።'),
+        ('amh', 'ፋርማሲው የት ነው?'),
+        ('amh', 'ዶክተር እፈልጋለሁ።'),
+        ('amh', 'መድኃኒት አዝልሃለሁ።'),
+        ('amh', 'ራሴን ያመኛል።'),
+        ('amh', 'ትኩሳት አለኝ።'),
+        ('amh', 'ሆዴን ያመኛል።'),
         
         ('orm', 'Akkam, akkam jirta? Nagaa qabdaa?'),
         ('orm', 'Akkam jirta, nagaa qabdaa?'),
         ('orm', 'Ani nagaadha, ati hoo nagaadhaa?'),
         ('orm', 'Maaltu si dhibe?'),
         ('orm', 'Qoricha siif barreessa'),
+        ('orm', 'Qoricha siif ajaja.'),
         ('orm', 'Akkam bulte?'),
         ('orm', 'Akkam oolte?'),
         ('orm', 'Baga nagaan dhufte'),
@@ -62,12 +80,21 @@ def main():
         ('orm', 'Maaloo naaf irra deebi\'i'),
         ('orm', 'Eeyyee'),
         ('orm', 'Miti'),
+        ('orm', 'Hospitaalli eessa jira?'),
+        ('orm', 'Manni fincaanii eessa jira?'),
+        ('orm', 'Bishaan barbaada.'),
+        ('orm', 'Manni qorichaa eessa jira?'),
+        ('orm', 'Doktora barbaada.'),
+        ('orm', 'Mataan na dhukkuba.'),
+        ('orm', "Ho'a qaamaa qaba."),
+        ('orm', 'Garaan na dhukkuba.'),
         
         ('tir', 'ሰላም፡ ከመይ ኣለኻ? ድሓን ዲኻ?'),
         ('tir', 'ሰላም ከመይ ኣለኻ፡ ድሓን ዲኻ?'),
         ('tir', 'ኣነ ድሓን እየ፡ ንስኻኸ ድሓን ዲኻ?'),
         ('tir', 'ምንኻ እዩ ዝሕምመካ?'),
         ('tir', 'መድሃኒት ክጽሕፈልካ እየ'),
+        ('tir', 'መድሃኒት ክእዝዘልካ እየ።'),
         ('tir', 'ከመይ ሓዲርካ?'),
         ('tir', 'ከመይ ውዒልካ?'),
         ('tir', 'እንቋዕ ብደሓን መጻእካ'),
@@ -77,12 +104,21 @@ def main():
         ('tir', 'ብኽብረትካ ድገመለይ'),
         ('tir', 'እወ'),
         ('tir', 'ኣይኮነን'),
+        ('tir', 'ሆስፒታል ኣበይ ኣሎ?'),
+        ('tir', 'ሽቓቕ ኣበይ ኣሎ?'),
+        ('tir', 'ማይ እደሊ ኣለኹ።'),
+        ('tir', 'ፋርማሲ ኣበይ ኣሎ?'),
+        ('tir', 'ሓኪም እደሊ ኣለኹ።'),
+        ('tir', 'ርእሰይ የሕምመኒ ኣሎ።'),
+        ('tir', 'ረስኒ ኣሎኒ።'),
+        ('tir', 'ኸብደይ የሕምመኒ ኣሎ።'),
         
         ('som', 'Nabad, sidee tahay? Ma fiican tahay?'),
         ('som', 'Sidee tahay, ma fiican tahay?'),
         ('som', 'Anigu waan fiicanahay, adiguna ma fiican tahay?'),
         ('som', 'Maxaa ku xanuunaya?'),
         ('som', 'Dawo ayaan kuu qorayaa'),
+        ('som', 'Daawaan kuu qorayaa.'),
         ('som', 'Subax wanaagsan'),
         ('som', 'Galab wanaagsan'),
         ('som', 'Soo dhowow'),
@@ -92,12 +128,28 @@ def main():
         ('som', 'Fadlan ii soo celi'),
         ('som', 'Haa'),
         ('som', 'Maya'),
+        ('som', 'Isbitaalku xaggee ku yaallaa?'),
+        ('som', 'Musqushu xaggee ku yaallaa?'),
+        ('som', 'Biyo baan rabaa.'),
+        ('som', 'Farmashiyuhu xaggee ku yaallaa?'),
+        ('som', 'Dhakhtar baan rabaa.'),
+        ('som', 'Madaxa ayaa i xanuunaya.'),
+        ('som', 'Qandho ayaa i haysa.'),
+        ('som', 'Caloosha ayaa i xanuunaysa.'),
         
         ('eng', 'Hello, how are you? Are you doing well?'),
         ('eng', 'I am fine, and you?'),
         ('eng', 'I am doing well, thank you.'),
         ('eng', 'Where does it hurt?'),
         ('eng', 'I will prescribe medicine for you.'),
+        ('eng', 'Where is the hospital?'),
+        ('eng', 'Where is the restroom?'),
+        ('eng', 'I need water.'),
+        ('eng', 'Where is the pharmacy?'),
+        ('eng', 'I need a doctor.'),
+        ('eng', 'I have a headache.'),
+        ('eng', 'I have a fever.'),
+        ('eng', 'I have a stomach ache.'),
         ('eng', 'Good morning'),
         ('eng', 'Good afternoon'),
         ('eng', 'Welcome'),
@@ -105,6 +157,8 @@ def main():
         ('eng', 'Excuse me'),
         ('eng', 'What is your name?'),
         ('eng', 'Please repeat that for me'),
+        ('eng', 'Yes'),
+        ('eng', 'No'),
         ('eng', 'Yes'),
         ('eng', 'No'),
     ]

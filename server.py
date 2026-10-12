@@ -5,9 +5,14 @@ Run from the repository root with:
 """
 
 import os
-os.environ["MKL_DISABLE_FAST_MM"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "1"
+_cpu_count = str(os.cpu_count() or 8)
+os.environ["MKL_NUM_THREADS"] = _cpu_count
+os.environ["OMP_NUM_THREADS"] = _cpu_count
+os.environ["TORCH_NUM_THREADS"] = _cpu_count
+import torch
+torch.set_num_threads(os.cpu_count() or 8)
+torch.set_num_interop_threads(2)
+
 from contextlib import asynccontextmanager
 from pathlib import Path
 import sys
@@ -251,14 +256,24 @@ class TTSRequest(BaseModel):
     lang: str = "orm"
 
 
+def _get_tts_engine():
+    pipeline = getattr(app.state, "pipeline", None)
+    if pipeline and hasattr(pipeline, "tts"):
+        return pipeline.tts
+    if not hasattr(app.state, "_standalone_tts"):
+        from ai_pipeline.pipeline import MMSTTSEngine
+        app.state._standalone_tts = MMSTTSEngine()
+    return app.state._standalone_tts
+
+
 @app.get("/tts")
 async def tts_stream_get(
     text: str = Query(..., min_length=1, max_length=2_000),
     lang: str = Query(default="orm"),
 ) -> Response:
     """Stream synthesized speech audio as WAV for mobile or web playback."""
-    pipeline = get_pipeline()
-    wav_bytes = pipeline.tts.synthesize_to_bytes(text.strip(), lang=lang)
+    engine = _get_tts_engine()
+    wav_bytes = engine.synthesize_to_bytes(text.strip(), lang=lang)
     return Response(
         content=wav_bytes,
         media_type="audio/wav",
@@ -269,11 +284,19 @@ async def tts_stream_get(
 @app.post("/tts")
 async def tts_stream_post(request: TTSRequest) -> Response:
     """Synthesize speech audio as WAV from JSON body."""
-    pipeline = get_pipeline()
-    wav_bytes = pipeline.tts.synthesize_to_bytes(request.text.strip(), lang=request.lang)
+    engine = _get_tts_engine()
+    wav_bytes = engine.synthesize_to_bytes(request.text.strip(), lang=request.lang)
     return Response(
         content=wav_bytes,
         media_type="audio/wav",
         headers={"Content-Disposition": 'inline; filename="speech.wav"'},
     )
+
+
+# Mount landing page static files
+from fastapi.staticfiles import StaticFiles
+
+landing_dir = Path(__file__).resolve().parent / "landing"
+if landing_dir.is_dir():
+    app.mount("/landing", StaticFiles(directory=str(landing_dir), html=True), name="landing")
 

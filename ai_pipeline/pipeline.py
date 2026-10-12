@@ -874,9 +874,66 @@ class MMSTTSEngine:
         self._tokenizers[model_name] = tokenizer
         return model, tokenizer
 
+    @staticmethod
+    def normalize_text_for_tts(text: str, lang: str) -> str:
+        """
+        Normalize text to match the exact phonetic vocabulary of the neural TTS model.
+        Eliminates <unk> token generation which causes audio distortion, garbling, and clicking.
+        """
+        import re
+        if not text:
+            return ""
+        norm_lang = (lang or "orm").lower().strip()
+        t = text.strip()
+
+        # Afaan Oromoo: Model vocab is strictly lowercase a-z, apostrophe (hudhaa), and space.
+        if "orm" in norm_lang or norm_lang == "om" or "gaz" in norm_lang:
+            t = re.sub(r"[’‘`´ʻʼ]", "'", t)
+            t = re.sub(r"[!?,.:;\-_/\\|()\"“”]+", " ", t)
+            t = t.lower()
+            t = re.sub(r"[^a-z' ]", " ", t)
+            return re.sub(r"\s+", " ", t).strip()
+
+        # Somali: Lowercase a-z, apostrophe, and space
+        if "som" in norm_lang or norm_lang == "so":
+            t = re.sub(r"[’‘`´ʻʼ]", "'", t)
+            t = re.sub(r"[!?,.:;\-_/\\|()\"“”]+", " ", t)
+            t = t.lower()
+            t = re.sub(r"[^a-z' ]", " ", t)
+            return re.sub(r"\s+", " ", t).strip()
+
+        # Amharic & Tigrinya: Replace Ge'ez punctuation with clean pauses
+        if "amh" in norm_lang or norm_lang == "am" or "tir" in norm_lang or norm_lang == "ti":
+            t = re.sub(r"[፡፣፤፦፧፨፠]+", " ", t)
+            t = re.sub(r"[።]+", " ", t)
+            t = re.sub(r"[!?,.:;\-_/\\|()\"“”]+", " ", t)
+            return re.sub(r"\s+", " ", t).strip()
+
+        # English
+        t = re.sub(r"[^a-zA-Z0-9'.,?! ]", " ", t)
+        return re.sub(r"\s+", " ", t).strip()
+
+    @staticmethod
+    def enhance_audio(waveform, sample_rate: int):
+        """Enhance audio presence: trim excessive padding and peak normalize to -1.0 dBFS."""
+        import numpy as np
+        if waveform is None or len(waveform) == 0:
+            return waveform
+        threshold = 0.01
+        indices = np.where(np.abs(waveform) > threshold)[0]
+        if len(indices) > 0:
+            start = max(0, indices[0] - int(sample_rate * 0.05))
+            end = min(len(waveform), indices[-1] + int(sample_rate * 0.05))
+            waveform = waveform[start:end]
+        peak = np.max(np.abs(waveform))
+        if peak > 1e-4:
+            waveform = waveform * (0.90 / peak)
+        return waveform
+
     def synthesize_to_bytes(self, text: str, lang: str = "orm") -> bytes:
-        """Synthesize text to in-memory WAV audio bytes."""
+        from pathlib import Path
         import io
+        import hashlib
         import soundfile as sf
         import torch
         import numpy as np
@@ -886,18 +943,53 @@ class MMSTTSEngine:
             sf.write(buf, np.zeros(1600, dtype=np.float32), samplerate=16000, format="WAV")
             return buf.getvalue()
 
+        # Check local audio cache first for instant playback (< 5ms)
+        norm_lang = (lang or "orm").lower().strip()
+        canon_lang = (
+            "orm" if "orm" in norm_lang or norm_lang == "om" or "gaz" in norm_lang else
+            "amh" if "amh" in norm_lang or norm_lang == "am" else
+            "tir" if "tir" in norm_lang or norm_lang == "ti" else
+            "som" if "som" in norm_lang or norm_lang == "so" else
+            "eng"
+        )
+        cleaned = text.strip()
+        h = f"{canon_lang}_{hashlib.md5(cleaned.encode('utf-8')).hexdigest()[:10]}"
+        cache_dir = Path(__file__).resolve().parent.parent / "output_tts" / "cache"
+        cached_file = cache_dir / f"{h}.wav"
+        if cached_file.exists() and cached_file.stat().st_size > 500:
+            with open(cached_file, "rb") as f:
+                return f.read()
+
         try:
+            # Phonetic normalization to eliminate <unk> artifacts
+            clean_text = self.normalize_text_for_tts(cleaned, canon_lang)
+            if not clean_text:
+                clean_text = cleaned
+
             model, tokenizer = self._get_model_and_tokenizer(lang)
-            inputs = tokenizer(text.strip(), return_tensors="pt")
+            inputs = tokenizer(clean_text, return_tensors="pt")
             with torch.no_grad():
                 output = model(**inputs).waveform
 
             waveform = output[0].cpu().numpy()
             sample_rate = model.config.sampling_rate
 
+            # Audio enhancement: trim silence & peak normalize
+            waveform = self.enhance_audio(waveform, sample_rate)
+
             buf = io.BytesIO()
             sf.write(buf, waveform, samplerate=sample_rate, format="WAV")
-            return buf.getvalue()
+            wav_bytes = buf.getvalue()
+
+            # Cache the newly synthesized audio for fast future lookup
+            try:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                with open(cached_file, "wb") as f:
+                    f.write(wav_bytes)
+            except Exception:
+                pass
+
+            return wav_bytes
         except Exception as e:
             console.print(f"[yellow]MMS-TTS synthesize error ({lang}): {e}[/yellow]")
             return self._fallback_wav_bytes(text)
@@ -1937,11 +2029,13 @@ class TranslatorPipeline:
                 if effective_src == effective_tgt:
                     effective_tgt = "eng" if effective_src != "eng" else "amh"
         else:
-            detected = self._detect_audio_language(audio_path, (src_lang_key, tgt_lang_key))
-            if detected and detected != src_lang_key and detected in (src_lang_key, tgt_lang_key):
-                console.print(f"[yellow]⚡ Auto-routed speech: detected '{detected}' (swapped from '{src_lang_key}')[/yellow]")
-                effective_src = detected
-                effective_tgt = src_lang_key if detected == tgt_lang_key else tgt_lang_key
+            if speaker_mode in ("auto", "auto_swap"):
+                detected = self._detect_audio_language(audio_path, (src_lang_key, tgt_lang_key))
+                if detected and detected != src_lang_key and detected in (src_lang_key, tgt_lang_key):
+                    console.print(f"[yellow]⚡ Auto-routed speech: detected '{detected}' (swapped from '{src_lang_key}')[/yellow]")
+                    effective_src = detected
+                    effective_tgt = src_lang_key if detected == tgt_lang_key else tgt_lang_key
+
 
         src_lang = LANGUAGES[effective_src]
         tgt_lang = LANGUAGES[effective_tgt]

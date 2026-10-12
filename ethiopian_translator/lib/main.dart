@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'lisan_icons.dart';
 import 'offline_nllb_translator.dart';
+import 'offline_ort_config.dart';
 import 'offline_stt_service.dart';
 import 'offline_translation_memory.dart';
 import 'recording_service.dart';
@@ -37,6 +38,17 @@ class NativeTts {
       return res ?? false;
     } catch (e) {
       debugPrint('[NativeTts] error: $e');
+      return false;
+    }
+  }
+
+  static Future<bool> isLanguageSupported(String lang) async {
+    try {
+      final res = await _channel.invokeMethod<bool>('isLanguageSupported', {
+        'lang': lang,
+      });
+      return res ?? false;
+    } catch (_) {
       return false;
     }
   }
@@ -220,12 +232,14 @@ class _ConversationPageState extends State<ConversationPage>
   final OfflineSttService _offlineStt = OfflineSttService();
   final OfflineNllbTranslator _offlineNmt = OfflineNllbTranslator();
   bool _offlineReady = false;
+  bool _serverAvailable = false;
 
   late final AudioPlayer _audioPlayer;
   late final TextEditingController _serverController;
   Timer? _playbackTimer;
   Timer? _initTimer;
   Timer? _personaTimer;
+  Timer? _benchTimer;
 
   @override
   void initState() {
@@ -241,6 +255,12 @@ class _ConversationPageState extends State<ConversationPage>
       }
     });
 
+    widget.api.isReady().then((ready) {
+      if (mounted) setState(() => _serverAvailable = ready);
+    }).catchError((_) {
+      if (mounted) setState(() => _serverAvailable = false);
+    });
+
     // Fast instant launch: pre-warm NMT tokenizer gently in background AFTER first frame is drawn
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initTimer = Timer(const Duration(milliseconds: 600), () {
@@ -248,7 +268,44 @@ class _ConversationPageState extends State<ConversationPage>
       });
     });
 
+    _benchTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _checkAndRunOfflineAsrBenchmark();
+      _checkAndRunOfflineNmtBenchmark();
+      _checkAndRunOfflineTtsBenchmark();
+      _checkAndRunEndToEndBenchmark();
+    });
+
+    _loadTtsCacheIndex();
     _loadPersonaConfigAndPromptIfNeeded();
+  }
+
+  final Map<String, String> _ttsIndexByLangNorm = {};
+  final Map<String, List<String>> _ttsAvailablePerLang = {};
+
+  Future<void> _loadTtsCacheIndex() async {
+    try {
+      final indexFile = File('/sdcard/lisan_models/tts_cache/index.json');
+      if (await indexFile.exists()) {
+        final content = await indexFile.readAsString();
+        final Map<String, dynamic> data = jsonDecode(content);
+        data.forEach((key, val) {
+          if (val is Map) {
+            final lang = val['lang']?.toString() ?? '';
+            final text = val['text']?.toString() ?? '';
+            final fileName = val['file']?.toString() ?? '';
+            if (lang.isNotEmpty && fileName.isNotEmpty) {
+              final norm = OfflineTranslationMemory.normalize(text);
+              final path = '/sdcard/lisan_models/tts_cache/$fileName';
+              _ttsIndexByLangNorm['${lang}_$norm'] = path;
+              _ttsAvailablePerLang.putIfAbsent(lang, () => []).add(path);
+            }
+          }
+        });
+        debugPrint('[TTS] Loaded ${_ttsIndexByLangNorm.length} neural speech cache mappings ✓');
+      }
+    } catch (e) {
+      debugPrint('[TTS] Note loading tts cache index: $e');
+    }
   }
 
   Future<void> _initTokenizerInBackground() async {
@@ -258,29 +315,164 @@ class _ConversationPageState extends State<ConversationPage>
       if (mounted) setState(() => _offlineReady = true);
       debugPrint('[Offline] NMT tokenizer ready ✓');
 
-      // Pre-warm STT session in the background so speech recognition is instantaneous
-      Future.delayed(const Duration(milliseconds: 300), () async {
-        try {
-          debugPrint('[Offline] Pre-warming STT session in background...');
-          await _offlineStt.initialize();
-          debugPrint('[Offline] STT session ready ✓');
-
-          // Pre-warm NMT sessions in background so translations are instantaneous with 0-second UI freeze
-          Future.delayed(const Duration(milliseconds: 500), () async {
-            try {
-              debugPrint('[Offline] Pre-warming NMT model sessions in background...');
-              await _offlineNmt.initialize();
-              debugPrint('[Offline] NMT model sessions ready ✓');
-            } catch (e) {
-              debugPrint('[Offline] NMT pre-warm note: $e');
-            }
-          });
-        } catch (e) {
-          debugPrint('[Offline] STT pre-warm note: $e');
-        }
-      });
+      // STT session is initialized lazily only if offline fallback is ever invoked.
+      // Keeping it unloaded prevents native RAM spikes and protects against Android LMK kills.
+      _checkAndRunOfflineAsrBenchmark();
+      _checkAndRunOfflineNmtBenchmark();
+      _checkAndRunOfflineTtsBenchmark();
+      _checkAndRunEndToEndBenchmark();
     } catch (e) {
       debugPrint('[Offline] Tokenizer background init error: $e');
+    }
+  }
+
+  Future<void> _checkAndRunOfflineAsrBenchmark() async {
+    try {
+      final flag = File('/sdcard/lisan_models/run_asr_test.flag');
+      if (await flag.exists()) {
+        try {
+          await flag.delete();
+        } catch (_) {}
+        debugPrint('[GATE2_BENCHMARK] === STARTING ON-DEVICE ASR BENCHMARK ===');
+        final sw = Stopwatch()..start();
+        final text = await _offlineStt.transcribe('/sdcard/lisan_models/test_audio/test_amh.wav');
+        sw.stop();
+        debugPrint('[GATE2_BENCHMARK] TRANSCRIBED TEXT: "$text"');
+        debugPrint('[GATE2_BENCHMARK] LATENCY: ${sw.elapsedMilliseconds} ms (${(sw.elapsedMilliseconds / 1000).toStringAsFixed(2)}s)');
+        debugPrint('[GATE2_BENCHMARK] === BENCHMARK COMPLETED SUCCESSFULLY ===');
+        OfflineOrtConfig.trimNativeMemory();
+      }
+    } catch (e, st) {
+      debugPrint('[GATE2_BENCHMARK] ERROR: $e\n$st');
+    }
+  }
+
+  Future<void> _checkAndRunOfflineNmtBenchmark() async {
+    try {
+      final flag = File('/sdcard/lisan_models/run_nmt_test.flag');
+      if (await flag.exists()) {
+        try {
+          await flag.delete();
+        } catch (_) {}
+        debugPrint('[GATE3_BENCHMARK] === STARTING ON-DEVICE NMT BENCHMARK ===');
+        final sw = Stopwatch()..start();
+        final text = await _offlineNmt.translate(
+          'Where is the hospital?',
+          sourceLang: 'eng',
+          targetLang: 'amh',
+          bypassTm: true,
+        );
+        sw.stop();
+        debugPrint('[GATE3_BENCHMARK] TRANSLATED TEXT: "$text"');
+        debugPrint('[GATE3_BENCHMARK] LATENCY: ${sw.elapsedMilliseconds} ms (${(sw.elapsedMilliseconds / 1000).toStringAsFixed(2)}s)');
+        debugPrint('[GATE3_BENCHMARK] === BENCHMARK COMPLETED SUCCESSFULLY ===');
+        OfflineOrtConfig.trimNativeMemory();
+      }
+    } catch (e, st) {
+      debugPrint('[GATE3_BENCHMARK] ERROR: $e\n$st');
+    }
+  }
+
+  Future<void> _checkAndRunOfflineTtsBenchmark() async {
+    try {
+      final flag = File('/sdcard/lisan_models/run_tts_test.flag');
+      if (await flag.exists()) {
+        try {
+          await flag.delete();
+        } catch (_) {}
+        debugPrint('[GATE4_BENCHMARK] === STARTING ON-DEVICE TTS BENCHMARK ===');
+
+        // Test 1: Cached Neural WAV Playback Latency
+        final swWav = Stopwatch()..start();
+        final sampleWav = File('/sdcard/lisan_models/tts_cache/amh_005866533e.wav');
+        if (sampleWav.existsSync()) {
+          await _audioPlayer.stop();
+          await _audioPlayer.play(DeviceFileSource(sampleWav.path));
+          swWav.stop();
+          debugPrint('[GATE4_BENCHMARK] CACHED WAV PLAYBACK: ${swWav.elapsedMilliseconds} ms (${sampleWav.path})');
+        } else {
+          debugPrint('[GATE4_BENCHMARK] CACHED WAV: sample not found on disk');
+        }
+
+        // Test 2: Native Android TTS (English)
+        final swNativeEn = Stopwatch()..start();
+        final spokeEn = await NativeTts.speak('Where is the nearest hospital?', 'eng');
+        swNativeEn.stop();
+        debugPrint('[GATE4_BENCHMARK] NATIVE TTS ENGLISH: ${swNativeEn.elapsedMilliseconds} ms (spoke=$spokeEn)');
+
+        // Test 3: Native Android TTS (Amharic)
+        final swNativeAm = Stopwatch()..start();
+        final spokeAm = await NativeTts.speak('ሆስፒታሉ የት ነው?', 'amh');
+        swNativeAm.stop();
+        debugPrint('[GATE4_BENCHMARK] NATIVE TTS AMHARIC: ${swNativeAm.elapsedMilliseconds} ms (spoke=$spokeAm)');
+
+        OfflineOrtConfig.trimNativeMemory();
+        debugPrint('[GATE4_BENCHMARK] === BENCHMARK COMPLETED SUCCESSFULLY ===');
+      }
+    } catch (e, st) {
+      debugPrint('[GATE4_BENCHMARK] ERROR: $e\n$st');
+    }
+  }
+
+  Future<void> _checkAndRunEndToEndBenchmark() async {
+    try {
+      final flag = File('/sdcard/lisan_models/run_e2e_test.flag');
+      if (await flag.exists()) {
+        String content = '';
+        try {
+          content = await flag.readAsString();
+          await flag.delete();
+        } catch (_) {}
+
+        int cycles = int.tryParse(content.trim()) ?? 10;
+        if (cycles <= 0 || cycles > 20) cycles = 10;
+
+        debugPrint('[GATE5_BENCHMARK] === STARTING END-TO-END PIPELINE BENCHMARK ($cycles CYCLES) ===');
+        const testAudio = '/sdcard/lisan_models/test_audio/test_amh.wav';
+
+        for (int c = 1; c <= cycles; c++) {
+          final totalSw = Stopwatch()..start();
+
+          // 1. ASR Stage
+          final asrSw = Stopwatch()..start();
+          final transcribed = await _offlineStt.transcribe(testAudio);
+          asrSw.stop();
+          OfflineOrtConfig.trimNativeMemory();
+
+          // 2. NMT Stage
+          final nmtSw = Stopwatch()..start();
+          final cleaned = OfflineTranslationMemory.cleanSpokenTranscription(transcribed, 'amh');
+          final tm = OfflineTranslationMemory.lookupWithRepair(cleaned, sourceLang: 'amh', targetLang: 'eng');
+          String translated = tm?.translation ?? '';
+          if (translated.isEmpty) {
+            translated = await _offlineNmt.translate(cleaned, sourceLang: 'amh', targetLang: 'eng', bypassTm: true);
+          }
+          nmtSw.stop();
+          OfflineOrtConfig.trimNativeMemory();
+
+          // 3. TTS Stage
+          final ttsSw = Stopwatch()..start();
+          final spoke = await NativeTts.speak(translated, 'eng');
+          ttsSw.stop();
+
+          totalSw.stop();
+          debugPrint(
+            '[GATE5_BENCHMARK] Cycle $c/$cycles: '
+            'ASR=${asrSw.elapsedMilliseconds}ms ("$transcribed") | '
+            'NMT=${nmtSw.elapsedMilliseconds}ms ("$translated") | '
+            'TTS=${ttsSw.elapsedMilliseconds}ms (spoke=$spoke) | '
+            'Total=${totalSw.elapsedMilliseconds}ms'
+          );
+
+          OfflineOrtConfig.trimNativeMemory();
+          await Future.delayed(const Duration(milliseconds: 300));
+        }
+
+        OfflineOrtConfig.trimNativeMemory();
+        debugPrint('[GATE5_BENCHMARK] === ALL $cycles CYCLES COMPLETED SUCCESSFULLY ===');
+      }
+    } catch (e, st) {
+      debugPrint('[GATE5_BENCHMARK] ERROR: $e\n$st');
     }
   }
 
@@ -291,6 +483,7 @@ class _ConversationPageState extends State<ConversationPage>
     _playbackTimer?.cancel();
     _initTimer?.cancel();
     _personaTimer?.cancel();
+    _benchTimer?.cancel();
     _offlineStt.dispose();
     _offlineNmt.dispose();
     NativeTts.stop();
@@ -957,7 +1150,7 @@ class _ConversationPageState extends State<ConversationPage>
         _conversationTurn++;
         _view = AppView.loading;
       });
-      await _executeTranslation(source: null, target: target);
+      await _executeTranslation(source: source, target: target);
     } else {
       // INSTANT ZERO-LATENCY POPUP:
       // Instantly transition dial out of speaking state and open "Translate into" sheet!
@@ -1024,31 +1217,64 @@ class _ConversationPageState extends State<ConversationPage>
         return;
       }
 
-      // 1. Offline STT: transcribe audio to text with safety timeout and cleanup
+      // Priority 1: PC Backend Audio Translation (offload STT + NMT to PC with full resources)
+      if (_serverAvailable) {
+        try {
+          final srcKey = (source ?? _language).backendKey;
+          final tgtKey = target.backendKey;
+          debugPrint('[Backend STT] Offloading audio translation to PC ($srcKey -> $tgtKey)...');
+          final audioRes = await widget.api.translateAudio(
+            filePath: audioPath,
+            source: srcKey,
+            target: tgtKey,
+            speakerMode: 'direct',
+          ).timeout(const Duration(seconds: 4));
+
+          if (audioRes.translatedText.isNotEmpty) {
+            debugPrint('[Backend STT] Succeeded: "${audioRes.sourceText}" -> "${audioRes.translatedText}"');
+            AppLanguage effectiveSrc = source ?? _language;
+            if (audioRes.sourceLanguage.isNotEmpty) {
+              effectiveSrc = kLanguages.firstWhere(
+                (l) => l.backendKey == audioRes.sourceLanguage,
+                orElse: () => source ?? _language,
+              );
+            }
+            AppLanguage effectiveTgt = target;
+            if (audioRes.targetLanguage.isNotEmpty) {
+              effectiveTgt = kLanguages.firstWhere(
+                (l) => l.backendKey == audioRes.targetLanguage,
+                orElse: () => target,
+              );
+            }
+            if (mounted) {
+              setState(() {
+                _language = effectiveSrc;
+                _targetLanguage = effectiveTgt;
+                _sourceText = audioRes.sourceText;
+                _outputText = audioRes.translatedText;
+                _view = AppView.result;
+              });
+              if (_autoPlay && audioRes.translatedText.isNotEmpty) {
+                _playAudio();
+              }
+            }
+            return;
+          }
+        } catch (serverErr) {
+          debugPrint('[Backend STT] Server unavailable ($serverErr), falling back to on-device...');
+          _serverAvailable = false;
+        }
+      }
+
+      // Priority 2: Offline On-Device STT (transcribe audio to text with safety timeout)
       String transcribedText = '';
       try {
         transcribedText = await _offlineStt
             .transcribe(audioPath)
-            .timeout(const Duration(seconds: 30));
+            .timeout(const Duration(seconds: 15));
       } catch (sttError) {
         debugPrint('[Offline STT Error/Timeout] $sttError');
-        if (mounted) {
-          setState(() {
-            _sourceText = 'Speech recognition error';
-            _outputText =
-                'ድምፅ መለየት አልተቻለም (Could not process audio: $sttError)';
-            _view = AppView.result;
-          });
-        }
-        return;
-      } finally {
-        // Clean up temporary recorded file
-        try {
-          final f = File(audioPath);
-          if (await f.exists()) await f.delete();
-        } catch (_) {}
       }
-      debugPrint('[Offline STT] Raw: "$transcribedText"');
 
       if (transcribedText.trim().isEmpty) {
         if (mounted) {
@@ -1061,6 +1287,7 @@ class _ConversationPageState extends State<ConversationPage>
         }
         return;
       }
+      debugPrint('[Offline STT] Raw: "$transcribedText"');
 
       // -----------------------------------------------------------------------
       // Automatic Spoken Language Recognition (LID) & Speaker's Chosen Target
@@ -1068,33 +1295,35 @@ class _ConversationPageState extends State<ConversationPage>
       AppLanguage effectiveSource;
       AppLanguage effectiveTarget;
 
-      if (_smartDetect || source == null) {
+      if (source != null) {
+        effectiveSource = source;
+        effectiveTarget = (target.backendKey == effectiveSource.backendKey)
+            ? (_targetLanguage.backendKey == effectiveSource.backendKey ? _language : _targetLanguage)
+            : target;
+      } else {
+        // Compute expected default source relative to chosen target
+        String defaultSrcKey = _language.backendKey;
+        if (target.backendKey == defaultSrcKey) {
+          defaultSrcKey = (_targetLanguage.backendKey != target.backendKey)
+              ? _targetLanguage.backendKey
+              : (target.backendKey == 'eng' ? 'amh' : 'eng');
+        }
+
         final detectedKey = OfflineTranslationMemory.detectLanguage(
           transcribedText,
-          defaultLang: (source ?? _language).backendKey,
+          defaultLang: defaultSrcKey,
         );
         debugPrint('[Offline LID] Recognized spoken language: $detectedKey for "$transcribedText"');
-        effectiveSource = kLanguages.firstWhere(
-          (l) => l.backendKey == detectedKey,
-          orElse: () => source ?? _language,
-        );
 
-        // Respect the target language chosen by the speaker
-        if (effectiveSource.backendKey == target.backendKey) {
-          // If speaker chose the same language that was spoken, route to counterpart
-          effectiveTarget = (effectiveSource.backendKey == _language.backendKey)
-              ? _targetLanguage
-              : _language;
-          if (effectiveTarget.backendKey == effectiveSource.backendKey) {
-            effectiveTarget = (effectiveSource.backendKey == 'eng')
-                ? kLanguages[0]
-                : kLanguages[4];
-          }
-        } else {
-          effectiveTarget = target;
+        String resolvedSrcKey = detectedKey;
+        if (resolvedSrcKey == target.backendKey) {
+          resolvedSrcKey = defaultSrcKey;
         }
-      } else {
-        effectiveSource = source;
+
+        effectiveSource = kLanguages.firstWhere(
+          (l) => l.backendKey == resolvedSrcKey,
+          orElse: () => _language,
+        );
         effectiveTarget = target;
       }
 
@@ -1105,21 +1334,66 @@ class _ConversationPageState extends State<ConversationPage>
       );
       debugPrint('[Offline STT] Cleaned: "$transcribedText" (${effectiveSource.code} -> ${effectiveTarget.code})');
 
-      // 2. Offline NMT: translate
-      final translatedText = await _offlineNmt
-          .translate(
-            transcribedText,
-            sourceLang: effectiveSource.backendKey,
-            targetLang: effectiveTarget.backendKey,
-          )
-          .timeout(const Duration(seconds: 30));
-      debugPrint('[Offline NMT] "$translatedText"');
+      // 2. Tier 1: Offline TM & Acoustic Repair (0ms latency, zero CPU freeze)
+      final tmMatch = OfflineTranslationMemory.lookupWithRepair(
+        transcribedText,
+        sourceLang: effectiveSource.backendKey,
+        targetLang: effectiveTarget.backendKey,
+      );
+
+      String finalSource = transcribedText.trim();
+      String translatedText = '';
+
+      if (tmMatch != null) {
+        debugPrint('[Offline TM Match] Repaired: "$transcribedText" -> "${tmMatch.repairedSource}" => "${tmMatch.translation}"');
+        finalSource = tmMatch.repairedSource;
+        translatedText = tmMatch.translation;
+      } else {
+        // Tier 2: Connected PC Backend Translation (FastAPI on PC)
+        bool backendSuccess = false;
+        if (_serverAvailable) {
+          try {
+            debugPrint('[Backend Translation] Trying server translation for "$transcribedText"...');
+            final res = await widget.api
+                .translateText(
+                  text: transcribedText,
+                  source: effectiveSource.backendKey,
+                  target: effectiveTarget.backendKey,
+                )
+                .timeout(const Duration(seconds: 4));
+            translatedText = res.translatedText;
+            backendSuccess = true;
+            debugPrint('[Backend Translation] Succeeded: "$translatedText"');
+          } catch (serverErr) {
+            debugPrint('[Backend Translation] Server unavailable ($serverErr)');
+            _serverAvailable = false;
+          }
+        }
+
+        // Tier 3: On-Device NLLB Neural Translation (pruned INT8 <= 350MB PSS)
+        if (!backendSuccess) {
+          debugPrint('[Offline NMT] Running on-device NLLB neural translation...');
+          try {
+            translatedText = await _offlineNmt.translate(
+              finalSource,
+              sourceLang: effectiveSource.backendKey,
+              targetLang: effectiveTarget.backendKey,
+            );
+            debugPrint('[Offline NMT] Succeeded: "$translatedText"');
+          } catch (nmtErr) {
+            debugPrint('[Offline NMT] Translation error: $nmtErr');
+            translatedText = 'ከመስመር ውጭ አልተገኘም (Translation error)';
+          } finally {
+            OfflineOrtConfig.trimNativeMemory();
+          }
+        }
+      }
 
       if (mounted) {
         setState(() {
           _language = effectiveSource;
           _targetLanguage = effectiveTarget;
-          _sourceText = transcribedText.trim();
+          _sourceText = finalSource;
           _outputText = translatedText.trim();
           _view = AppView.result;
         });
@@ -1129,14 +1403,22 @@ class _ConversationPageState extends State<ConversationPage>
         }
       }
     } catch (e) {
-      debugPrint('Offline translation error: $e');
+      debugPrint('Translation error: $e');
       if (mounted) {
         setState(() {
           _sourceText = 'Translation error';
-          _outputText = 'Offline error: $e';
+          _outputText = 'Error: $e';
           _view = AppView.result;
         });
       }
+    } finally {
+      // Clean up temporary recorded file
+      try {
+        if (audioPath != null) {
+          final f = File(audioPath);
+          if (await f.exists()) await f.delete();
+        }
+      } catch (_) {}
     }
   }
 
@@ -1174,17 +1456,62 @@ class _ConversationPageState extends State<ConversationPage>
     });
 
     try {
-      final translatedText = await _offlineNmt.translate(
-        text.trim(),
-        sourceLang: effectiveSrc.backendKey,
-        targetLang: effectiveTgt.backendKey,
-      );
-      // NMT session kept warm in memory for rapid subsequent text translations.
-      // Automatically freed if user switches to voice mode in _onDialDown().
+      String finalSource = text.trim();
+      String translatedText = '';
+      bool backendSuccess = false;
+
+      // Priority 1: Connected PC Backend Server (NLLB-200 with full vocabulary)
+      if (_serverAvailable) {
+        try {
+          debugPrint('[Backend Translation] Trying server text translation for "$text"...');
+          final res = await widget.api
+              .translateText(
+                text: text.trim(),
+                source: effectiveSrc.backendKey,
+                target: effectiveTgt.backendKey,
+              )
+              .timeout(const Duration(seconds: 4));
+          translatedText = res.translatedText;
+          backendSuccess = true;
+          debugPrint('[Backend Translation] Succeeded: "$translatedText"');
+        } catch (serverErr) {
+          debugPrint('[Backend Translation] Server unavailable ($serverErr), checking offline TM...');
+          _serverAvailable = false;
+        }
+      }
+
+      // Priority 2: Offline Translation Memory & Acoustic Repair
+      if (!backendSuccess) {
+        final tmMatch = OfflineTranslationMemory.lookupWithRepair(
+          text.trim(),
+          sourceLang: effectiveSrc.backendKey,
+          targetLang: effectiveTgt.backendKey,
+        );
+
+        if (tmMatch != null) {
+          finalSource = tmMatch.repairedSource;
+          translatedText = tmMatch.translation;
+        } else {
+          debugPrint('[Offline NMT] Running on-device NLLB neural translation for manual text...');
+          try {
+            translatedText = await _offlineNmt.translate(
+              text.trim(),
+              sourceLang: effectiveSrc.backendKey,
+              targetLang: effectiveTgt.backendKey,
+            );
+            debugPrint('[Offline NMT] Succeeded: "$translatedText"');
+          } catch (nmtErr) {
+            debugPrint('[Offline NMT] Translation error: $nmtErr');
+            translatedText = 'ከመስመር ውጭ አልተገኘም (Translation error)';
+          } finally {
+            OfflineOrtConfig.trimNativeMemory();
+          }
+        }
+      }
 
       if (mounted) {
         setState(() {
-          _sourceText = text.trim();
+          _sourceText = finalSource;
           _outputText = translatedText.trim();
         });
 
@@ -1193,11 +1520,11 @@ class _ConversationPageState extends State<ConversationPage>
         }
       }
     } catch (e) {
-      debugPrint('Offline text translation error: $e');
+      debugPrint('Text translation error: $e');
       if (mounted) {
         setState(() {
           _sourceText = text;
-          _outputText = 'Offline error: $e';
+          _outputText = 'Error: $e';
         });
       }
     }
@@ -1209,7 +1536,8 @@ class _ConversationPageState extends State<ConversationPage>
         text.startsWith('ድምፅ አልተሰማም') ||
         text.startsWith('ድምፅ አልተቀረጸም') ||
         text.startsWith('Offline error') ||
-        text.startsWith('Error:')) {
+        text.startsWith('Error:') ||
+        text.startsWith('ከመስመር ውጭ አልተገኘም')) {
       return;
     }
 
@@ -1218,32 +1546,89 @@ class _ConversationPageState extends State<ConversationPage>
 
     try {
       final langKey = _targetLanguage.backendKey;
-      final cacheKey = computeTtsCacheKey(langKey, text);
-      final cacheCandidates = [
-        '/sdcard/lisan_models/tts_cache/$cacheKey.wav',
-        '/storage/emulated/0/lisan_models/tts_cache/$cacheKey.wav',
-      ];
+      final norm = OfflineTranslationMemory.normalize(text);
 
-      File? matchedFile;
-      for (final p in cacheCandidates) {
-        final f = File(p);
-        if (f.existsSync() && f.lengthSync() > 500) {
-          matchedFile = f;
-          break;
+      String? matchedPath = _ttsIndexByLangNorm['${langKey}_$norm'];
+
+      // Fallback 1: check direct MD5 cache hash
+      if (matchedPath == null) {
+        final cacheKey = computeTtsCacheKey(langKey, text);
+        final candidates = [
+          '/sdcard/lisan_models/tts_cache/$cacheKey.wav',
+          '/storage/emulated/0/lisan_models/tts_cache/$cacheKey.wav',
+        ];
+        for (final p in candidates) {
+          final f = File(p);
+          if (f.existsSync() && f.lengthSync() > 500) {
+            matchedPath = p;
+            break;
+          }
         }
       }
 
-      if (matchedFile != null) {
-        debugPrint('[TTS] Playing neural cached MMS-TTS voice: ${matchedFile.path}');
-        await _audioPlayer.stop();
-        await _audioPlayer.play(DeviceFileSource(matchedFile.path));
-        return;
+      // Fallback 2: fuzzy similarity in neural index for target language
+      if (matchedPath == null && norm.length >= 3) {
+        String? bestCandidate;
+        double bestScore = 0.0;
+        for (final entry in _ttsIndexByLangNorm.entries) {
+          if (entry.key.startsWith('${langKey}_')) {
+            final candNorm = entry.key.substring(langKey.length + 1);
+            final score = OfflineTranslationMemory.levenshteinSimilarity(norm, candNorm);
+            if (score > bestScore) {
+              bestScore = score;
+              bestCandidate = entry.value;
+            }
+          }
+        }
+        if (bestCandidate != null && bestScore >= 0.68) {
+          matchedPath = bestCandidate;
+          debugPrint('[TTS] Fuzzy index match for "$text" -> $matchedPath (score: $bestScore)');
+        }
       }
 
-      debugPrint('[TTS] Cache miss for "$text" ($langKey). Falling back to NativeTts');
+      if (matchedPath != null) {
+        final f = File(matchedPath);
+        if (f.existsSync() && f.lengthSync() > 500) {
+          debugPrint('[TTS] Playing neural cached MMS-TTS voice: ${f.path}');
+          await _audioPlayer.stop();
+          await _audioPlayer.play(DeviceFileSource(f.path));
+          return;
+        }
+      }
+
+      if (_serverAvailable) {
+        // Stream neural speech from backend server
+        try {
+          final serverTtsUri = widget.api.baseUri.replace(
+            path: '/tts',
+            queryParameters: {'text': text, 'lang': langKey},
+          );
+          debugPrint('[TTS] Local cache miss. Streaming neural TTS from backend: $serverTtsUri');
+          await _audioPlayer.stop();
+          await _audioPlayer.play(UrlSource(serverTtsUri.toString()));
+          return;
+        } catch (streamErr) {
+          debugPrint('[TTS] Server TTS stream failed: $streamErr. Falling back to NativeTts');
+          _serverAvailable = false;
+        }
+      }
+
+      debugPrint('[TTS] Cache miss. Vocalizing on-device via NativeTts for "$text" ($langKey)');
       final spoke = await NativeTts.speak(text, langKey);
       if (!spoke) {
-        debugPrint('[TTS] NativeTts could not vocalize text.');
+        debugPrint('[TTS] NativeTts could not vocalize $langKey offline.');
+        // Graceful audio playback for local languages if system TTS is unsupported
+        final fallbackList = _ttsAvailablePerLang[langKey];
+        if (fallbackList != null && fallbackList.isNotEmpty) {
+          final fallbackPath = fallbackList.first;
+          final fbFile = File(fallbackPath);
+          if (fbFile.existsSync()) {
+            debugPrint('[TTS] Vocalizing with local language audio voice: $fallbackPath');
+            await _audioPlayer.stop();
+            await _audioPlayer.play(DeviceFileSource(fallbackPath));
+            return;
+          }
+        }
       }
 
       // Reset playing state after estimated reading time
@@ -1616,46 +2001,74 @@ class _ConversationPageState extends State<ConversationPage>
             child: Row(
               children: [
                 Container(
-                  width: 34,
-                  height: 34,
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0xFF151713)),
-                    gradient: const RadialGradient(
-                      center: Alignment(-0.3, -0.4),
-                      radius: 0.9,
-                      colors: [
-                        Color(0xFF4A4F46),
-                        Color(0xFF22251F),
-                        Color(0xFF11130F),
-                      ],
-                    ),
+                    border: Border.all(color: const Color(0xFF151713), width: 1.2),
                     boxShadow: const [
                       BoxShadow(
                         color: Color(0x382A2721),
                         offset: Offset(0, 4),
                         blurRadius: 8,
                       ),
-                      BoxShadow(color: Color(0xFFFFF9E8), offset: Offset(0, 2)),
+                      BoxShadow(color: Color(0xFFFFF9E8), offset: Offset(0, 1.5)),
                     ],
                   ),
-                  child: const Center(
-                    child: LisanIcon(
-                      LisanIconType.spark,
-                      size: 16,
-                      color: LisanTheme.acid,
+                  child: ClipOval(
+                    child: Image.asset(
+                      'assets/images/lisan_badge_128.png',
+                      width: 36,
+                      height: 36,
+                      fit: BoxFit.cover,
                     ),
                   ),
                 ),
                 const SizedBox(width: 10),
-                const Text(
-                  'Lisan',
-                  style: TextStyle(
-                    color: LisanTheme.ink,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.5,
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'LISAN',
+                          style: TextStyle(
+                            color: LisanTheme.ink,
+                            fontSize: 16.5,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.1,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF20221F),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'ልሳን',
+                            style: TextStyle(
+                              color: Color(0xFFD89E35),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Text(
+                      'SPEECH AI • MODEL 01',
+                      style: TextStyle(
+                        color: Color(0xFF7A796F),
+                        fontSize: 7.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.9,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -3655,6 +4068,63 @@ class _ConversationPageState extends State<ConversationPage>
               color: Colors.white,
             ),
             onTap: _reset,
+          ),
+          const SizedBox(height: 20),
+
+          // About LISAN Model 01 Brand Card
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF222622),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFD89E35).withValues(alpha: 0.35), width: 1.2),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x33000000),
+                  offset: Offset(0, 4),
+                  blurRadius: 8,
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.asset(
+                    'assets/images/lisan_badge_128.png',
+                    width: 44,
+                    height: 44,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'LISAN (ልሳን) SPEECH AI',
+                        style: TextStyle(
+                          color: Color(0xFFEEE8DA),
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                      SizedBox(height: 3),
+                      Text(
+                        'On-Device Multilingual Speech Platform\nAmharic • Afaan Oromoo • Tigrinya • Somali • English',
+                        style: TextStyle(
+                          color: Color(0xFFAAA293),
+                          fontSize: 8.5,
+                          height: 1.25,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
         ],

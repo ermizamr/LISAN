@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.seed_scenarios_tm import CLINIC_CORPUS, ROAD_CORPUS, CAFE_CORPUS, MARKET_CORPUS
 from scripts.seed_deep_ethiopian_dialogues import DEEP_ETHIOPIAN_CORPUS
+from scripts.seed_demo_scenarios import RURAL_CLINIC_DIALOGUE, AXUM_TOURIST_DIALOGUE
 from ai_pipeline.glossary import (
     AMH_TO_ENG_EXACT,
     ENG_TO_AMH_EXACT,
@@ -264,12 +265,126 @@ def add_pair(s_lang: str, t_lang: str, src: str, tgt: str):
         tm_data[(s_lang, t_lang)][norm] = tgt.strip()
 
 # 1. Ingest Scenarios (all 5 languages)
-all_corpora = CLINIC_CORPUS + ROAD_CORPUS + CAFE_CORPUS + MARKET_CORPUS + DEEP_ETHIOPIAN_CORPUS
+all_corpora = CLINIC_CORPUS + ROAD_CORPUS + CAFE_CORPUS + MARKET_CORPUS + DEEP_ETHIOPIAN_CORPUS + RURAL_CLINIC_DIALOGUE + AXUM_TOURIST_DIALOGUE
 for item in all_corpora:
     for s_lang in LANGS:
         for t_lang in LANGS:
             if s_lang != t_lang and s_lang in item and t_lang in item:
                 add_pair(s_lang, t_lang, item[s_lang], item[t_lang])
+
+# 1b. Ingest Demo Scenarios Spoken Variants (Prefix/Suffix strips & punctuation-free forms)
+demo_turn_pairs = [
+    # Rural Clinic
+    ('amh', 'orm', "እንደምን ዋልክ አባቴ፣ ዛሬ ምንህን ነው የሚያምህ?", "Akkam oolte abbaa koo, har'a maaltu si dhibe?"),
+    ('amh', 'orm', "እንደምን ዋልክ አባቴ ዛሬ ምንህን ነው የሚያምህ", "Akkam oolte abbaa koo, har'a maaltu si dhibe?"),
+    ('amh', 'orm', "ዛሬ ምንህን ነው የሚያምህ?", "Har'a maaltu si dhibe?"),
+    ('amh', 'orm', "ዛሬ ምንህን ነው የሚያምህ", "Har'a maaltu si dhibe?"),
+    ('amh', 'orm', "ምንህን ነው የሚያምህ?", "Maaltu si dhibe?"),
+    ('amh', 'orm', "ምንህን ነው የሚያምህ", "Maaltu si dhibe?"),
+    ('orm', 'amh', "Akkam oolte abbaa koo, har'a maaltu si dhibe?", "እንደምን ዋልክ አባቴ፣ ዛሬ ምንህን ነው የሚያምህ?"),
+    ('orm', 'amh', "Akkam oolte abbaa koo har'a maaltu si dhibe", "እንደምን ዋልክ አባቴ፣ ዛሬ ምንህን ነው የሚያምህ?"),
+    ('orm', 'amh', "har'a maaltu si dhibe?", "ዛሬ ምንህን ነው የሚያምህ?"),
+    ('orm', 'amh', "har'a maaltu si dhibe", "ዛሬ ምንህን ነው የሚያምህ?"),
+
+    ('amh', 'orm', "ጤና ይስጥልኝ ዶክተር። ለሦስት ቀናት ራሴን ያመኛል፣ እንዲሁም ከፍተኛ ትኩሳት ይዞኛል።", "Baga nagaan jirtu doktoor. Guyyaa sadiif mataan na dhukkuba, akkasumas ho'i guddaan na qabeera."),
+    ('amh', 'orm', "ለሦስት ቀናት ራሴን ያመኛል፣ እንዲሁም ከፍተኛ ትኩሳት ይዞኛል።", "Guyyaa sadiif mataan na dhukkuba, akkasumas ho'i guddaan na qabeera."),
+    ('amh', 'orm', "ለሦስት ቀናት ራሴን ያመኛል እንዲሁም ከፍተኛ ትኩሳት ይዞኛል", "Guyyaa sadiif mataan na dhukkuba, akkasumas ho'i guddaan na qabeera."),
+    ('orm', 'amh', "Baga nagaan jirtu doktoor. Guyyaa sadiif mataan na dhukkuba, akkasumas ho'i guddaan na qabeera.", "ጤና ይስጥልኝ ዶክተር። ለሦስት ቀናት ራሴን ያመኛል፣ እንዲሁም ከፍተኛ ትኩሳት ይዞኛል።"),
+    ('orm', 'amh', "Guyyaa sadiif mataan na dhukkuba, akkasumas ho'i guddaan na qabeera.", "ለሦስት ቀናት ራሴን ያመኛል፣ እንዲሁም ከፍተኛ ትኩሳት ይዞኛል።"),
+    ('orm', 'amh', "Guyyaa sadiif mataan na dhukkuba akkasumas ho'i guddaan na qabeera", "ለሦስት ቀናት ራሴን ያመኛል፣ እንዲሁም ከፍተኛ ትኩሳት ይዞኛል።"),
+
+    ('amh', 'orm', "ብርድ ብርድ ማለት፣ ማቅለሽለሽ ወይም ሳል አለብህ?", "Dhaamochi, balaqqamsi ykn qufaan sitti jiraa?"),
+    ('amh', 'orm', "ብርድ ብርድ ማለት ማቅለሽለሽ ወይም ሳል አለብህ", "Dhaamochi, balaqqamsi ykn qufaan sitti jiraa?"),
+    ('orm', 'amh', "Dhaamochi, balaqqamsi ykn qufaan sitti jiraa?", "ብርድ ብርድ ማለት፣ ማቅለሽለሽ ወይም ሳል አለብህ?"),
+    ('orm', 'amh', "Dhaamochi balaqqamsi ykn qufaan sitti jiraa", "ብርድ ብርድ ማለት፣ ማቅለሽለሽ ወይም ሳል አለብህ?"),
+
+    ('amh', 'orm', "ሳል የለም፣ ነገር ግን ማታ ማታ ብርቱ ብርድ ይይዘኛል፣ ሰውነቴም ይንቀጠቀጣል።", "Qufaan hin jiru, garuu galgala galgala qorri guddaan na qaba, qaamni koos ni hollata."),
+    ('amh', 'orm', "ሳል የለም ነገር ግን ማታ ማታ ብርቱ ብርድ ይይዘኛል ሰውነቴም ይንቀጠቀጣል", "Qufaan hin jiru, garuu galgala galgala qorri guddaan na qaba, qaamni koos ni hollata."),
+    ('orm', 'amh', "Qufaan hin jiru, garuu galgala galgala qorri guddaan na qaba, qaamni koos ni hollata.", "ሳል የለም፣ ነገር ግን ማታ ማታ ብርቱ ብርድ ይይዘኛል፣ ሰውነቴም ይንቀጠቀጣል።"),
+
+    ('amh', 'orm', "የወባ በሽታ መኖሩን ለማረጋገጥ አሁን ፈጣን የጣት ደም ምርመራ እናደርጋለን።", "Busaadhaa fi dhibee biraa mirkaneeffachuuf amma qorannoo dhiigaa ariifachiisaa siif goona."),
+    ('amh', 'orm', "የወባ በሽታ መኖሩን ለማረጋገጥ አሁን ፈጣን የጣት ደም ምርመራ እናደርጋለን", "Busaadhaa fi dhibee biraa mirkaneeffachuuf amma qorannoo dhiigaa ariifachiisaa siif goona."),
+    ('orm', 'amh', "Busaadhaa fi dhibee biraa mirkaneeffachuuf amma qorannoo dhiigaa ariifachiisaa siif goona.", "የወባ በሽታ መኖሩን ለማረጋገጥ አሁን ፈጣን የጣት ደም ምርመራ እናደርጋለን።"),
+
+    ('amh', 'orm', "የምርመራው ውጤት መጥቷል፤ ሳንባህ ጤነኛ ነው፣ ነገር ግን ደምህ ውስጥ ወባ ተገኝቷል።", "Firiin qorannoo dhufeera; sombi kee nagaadha, garuu dhiiga kee keessatti busaan argameera."),
+    ('amh', 'orm', "የምርመራው ውጤት መጥቷል ሳንባህ ጤነኛ ነው ነገር ግን ደምህ ውስጥ ወባ ተገኝቷል", "Firiin qorannoo dhufeera; sombi kee nagaadha, garuu dhiiga kee keessatti busaan argameera."),
+    ('orm', 'amh', "Firiin qorannoo dhufeera; sombi kee nagaadha, garuu dhiiga kee keessatti busaan argameera.", "የምርመራው ውጤት መጥቷል፤ ሳንባህ ጤነኛ ነው፣ ነገር ግን ደምህ ውስጥ ወባ ተገኝቷል።"),
+
+    ('amh', 'orm', "ይህንን የወባ መድሃኒት ለሦስት ቀናት ከምግብ በኋላ በቀን ሁለት ጊዜ ውሰድ።", "Qoricha busaa kana guyyoota sadiif nyaata booda guyyaatti yeroo lama fudhadhu."),
+    ('amh', 'orm', "ይህንን የወባ መድሃኒት ለሦስት ቀናት ከምግብ በኋላ በቀን ሁለት ጊዜ ውሰድ", "Qoricha busaa kana guyyoota sadiif nyaata booda guyyaatti yeroo lama fudhadhu."),
+    ('orm', 'amh', "Qoricha busaa kana guyyoota sadiif nyaata booda guyyaatti yeroo lama fudhadhu.", "ይህንን የወባ መድሃኒት ለሦስት ቀናት ከምግብ በኋላ በቀን ሁለት ጊዜ ውሰድ።"),
+
+    ('amh', 'orm', "አመሰግናለሁ ዶክተር። የእርሻ ስራ ትቼ የፈላ ውሃ ብቻ መጠጣት አለብኝ?", "Galatoomi doktoor. Hojii maasii dhiisee bishaan danfe qofa dhuguun qabaa?"),
+    ('amh', 'orm', "አመሰግናለሁ ዶክተር የእርሻ ስራ ትቼ የፈላ ውሃ ብቻ መጠጣት አለብኝ", "Galatoomi doktoor. Hojii maasii dhiisee bishaan danfe qofa dhuguun qabaa?"),
+    ('orm', 'amh', "Galatoomi doktoor. Hojii maasii dhiisee bishaan danfe qofa dhuguun qabaa?", "አመሰግናለሁ ዶክተር። የእርሻ ስራ ትቼ የፈላ ውሃ ብቻ መጠጣት አለብኝ?"),
+
+    ('amh', 'orm', "አዎ፣ በደንብ እረፍት አድርግ፣ ብዙ ውሃ ጠጣ፣ ትኩሳቱ ካልቀነሰም ተመልሰህ ና።", "Eeyyee, sirriitti boqodhu, bishaan baay'ee dhugi, yoo ho'i hin hir'anne immoo deebi'ii kottu."),
+    ('amh', 'orm', "አዎ በደንብ እረፍት አድርግ ብዙ ውሃ ጠጣ ትኩሳቱ ካልቀነሰም ተመልሰህ ና", "Eeyyee, sirriitti boqodhu, bishaan baay'ee dhugi, yoo ho'i hin hir'anne immoo deebi'ii kottu."),
+    ('orm', 'amh', "Eeyyee, sirriitti boqodhu, bishaan baay'ee dhugi, yoo ho'i hin hir'anne immoo deebi'ii kottu.", "አዎ፣ በደንብ እረፍት አድርግ፣ ብዙ ውሃ ጠጣ፣ ትኩሳቱ ካልቀነሰም ተመልሰህ ና።"),
+
+    ('amh', 'orm', "ጤና ይስጥልኝ ዶክተር፣ እግዚአብሔር ይህንን መድሃኒት ፈውስ ያድርገው።", "Fayyaa ta'aa doktoor, waaqayyo qoricha kana eebba haa godhu."),
+    ('amh', 'orm', "ጤና ይስጥልኝ ዶክተር እግዚአብሔር ይህንን መድሃኒት ፈውስ ያድርገው", "Fayyaa ta'aa doktoor, waaqayyo qoricha kana eebba haa godhu."),
+    ('orm', 'amh', "Fayyaa ta'aa doktoor, waaqayyo qoricha kana eebba haa godhu.", "ጤና ይስጥልኝ ዶክተር፣ እግዚአብሔር ይህንን መድሃኒት ፈውስ ያድርገው።"),
+
+    # Axum Tourist
+    ('eng', 'tir', "Hello! This ancient granite obelisk is breathtaking. How old is it?", "ሰላም! እዚ ጥንታዊ ናይ ሓወልቲ ግራናይት ኣዝዩ ዘደንቕ እዩ። ዕድሚኡ ክንደይ ዓመት እዩ?"),
+    ('eng', 'tir', "Hello this ancient granite obelisk is breathtaking how old is it", "ሰላም! እዚ ጥንታዊ ናይ ሓወልቲ ግራናይት ኣዝዩ ዘደንቕ እዩ። ዕድሚኡ ክንደይ ዓመት እዩ?"),
+    ('eng', 'amh', "Hello! This ancient granite obelisk is breathtaking. How old is it?", "ሰላም! ይህ ጥንታዊ የግራናይት ሀውልት እጅግ አስደናቂ ነው። ዕድሜው ስንት ዓመት ነው?"),
+    ('eng', 'amh', "Hello this ancient granite obelisk is breathtaking how old is it", "ሰላም! ይህ ጥንታዊ የግራናይት ሀውልት እጅግ አስደናቂ ነው። ዕድሜው ስንት ዓመት ነው?"),
+    ('tir', 'eng', "ሰላም! እዚ ጥንታዊ ናይ ሓወልቲ ግራናይት ኣዝዩ ዘደንቕ እዩ። ዕድሚኡ ክንደይ ዓመት እዩ?", "Hello! This ancient granite obelisk is breathtaking. How old is it?"),
+    ('tir', 'eng', "ሰላም እዚ ጥንታዊ ናይ ሓወልቲ ግራናይት ኣዝዩ ዘደንቕ እዩ ዕድሚኡ ክንደይ ዓመት እዩ", "Hello! This ancient granite obelisk is breathtaking. How old is it?"),
+    ('amh', 'eng', "ሰላም! ይህ ጥንታዊ የግራናይት ሀውልት እጅግ አስደናቂ ነው። ዕድሜው ስንት ዓመት ነው?", "Hello! This ancient granite obelisk is breathtaking. How old is it?"),
+    ('amh', 'eng', "ሰላም ይህ ጥንታዊ የግራናይት ሀውልት እጅግ አስደናቂ ነው ዕድሜው ስንት ዓመት ነው", "Hello! This ancient granite obelisk is breathtaking. How old is it?"),
+
+    ('eng', 'tir', "Welcome to the ancient city of Axum. This obelisk was erected in the fourth century by King Ezana.", "እንቋዕ ብደሓን መጻእኪ ናብ ጥንታዊት ከተማ ኣክሱም። እዚ ሓወልቲ ኣብ ራብዓይ ክፍለ ዘመን ብንጉሥ ኢዛና እዩ ተሃኒጹ።"),
+    ('eng', 'amh', "Welcome to the ancient city of Axum. This obelisk was erected in the fourth century by King Ezana.", "እንኳን ወደ ጥንታዊቷ የአክሱም ከተማ በደህና መጣህ። ይህ ሀውልት በአራተኛው ክፍለ ዘመን በንጉሥ ኢዛና ነው የተተከለው።"),
+    ('tir', 'eng', "እንቋዕ ብደሓን መጻእኪ ናብ ጥንታዊት ከተማ ኣክሱም። እዚ ሓወልቲ ኣብ ራብዓይ ክፍለ ዘመን ብንጉሥ ኢዛና እዩ ተሃኒጹ።", "Welcome to the ancient city of Axum. This obelisk was erected in the fourth century by King Ezana."),
+    ('amh', 'eng', "እንኳን ወደ ጥንታዊቷ የአክሱም ከተማ በደህና መጣህ። ይህ ሀውልት በአራተኛው ክፍለ ዘመን በንጉሥ ኢዛና ነው የተተከለው።", "Welcome to the ancient city of Axum. This obelisk was erected in the fourth century by King Ezana."),
+
+    ('eng', 'tir', "It is carved from a single piece of stone! How did ancient engineers transport something so massive?", "ካብ ሓደ ዓቢ እምኒ ጥራይ ዝተቐርጸ እዩ! ጥንታውያን መሃንድሳት ከመይ ገይሮም እዮም ከምዚ ዝኣመሰለ ከቢድ እምኒ ኣጓዒዞምዎ?"),
+    ('eng', 'amh', "It is carved from a single piece of stone! How did ancient engineers transport something so massive?", "ከአንድ ድንጋይ ብቻ የተቀረጸ ነው! ጥንታዊያን መሐንዲሶች ይህን የመሰለ ግዙፍ ድንጋይ እንዴት አጓጓዙት?"),
+    ('tir', 'eng', "ካብ ሓደ ዓቢ እምኒ ጥራይ ዝተቐርጸ እዩ! ጥንታውያን መሃንድሳት ከመይ ገይሮም እዮም ከምዚ ዝኣመሰለ ከቢድ እምኒ ኣጓዒዞምዎ?", "It is carved from a single piece of stone! How did ancient engineers transport something so massive?"),
+    ('amh', 'eng', "ከአንድ ድንጋይ ብቻ የተቀረጸ ነው! ጥንታዊያን መሐንዲሶች ይህን የመሰለ ግዙፍ ድንጋይ እንዴት አጓጓዙት?", "It is carved from a single piece of stone! How did ancient engineers transport something so massive?"),
+
+    ('eng', 'tir', "They transported it from four kilometers away using elephants and massive wooden rollers along prepared ramps.", "ካብ ኣርባዕተ ኪሎ ሜትር ርሕቀት ብዝነበሩ ሓርማዛትን ገዘፍቲ ዕንጨይትን ተጠቒሞም ብዝተዳለወ ጐደና ኣንከራፊፎም እዮም ኣምጺኦምዎ።"),
+    ('eng', 'amh', "They transported it from four kilometers away using elephants and massive wooden rollers along prepared ramps.", "ከአራት ኪሎ ሜትር ርቀት በዝሆኖችና በትላልቅ የእንጨት ማንከባለያዎች በመጠቀም በተዘጋጁ መንገዶች ነው ያመጡት።"),
+    ('tir', 'eng', "ካብ ኣርባዕተ ኪሎ ሜትር ርሕቀት ብዝነበሩ ሓርማዛትን ገዘፍቲ ዕንጨይትን ተጠቒሞም ብዝተዳለወ ጐደና ኣንከራፊፎም እዮም ኣምጺኦምዎ።", "They transported it from four kilometers away using elephants and massive wooden rollers along prepared ramps."),
+    ('amh', 'eng', "ከአራት ኪሎ ሜትር ርቀት በዝሆኖችና በትላልቅ የእንጨት ማንከባለያዎች በመጠቀም በተዘጋጁ መንገዶች ነው ያመጡት።", "They transported it from four kilometers away using elephants and massive wooden rollers along prepared ramps."),
+
+    ('eng', 'tir', "I also noticed the inscriptions nearby in Ge'ez, Sabaean, and Greek. Why three languages?", "ኣብ ጥቓኡ ዘለዉ ጽሑፋት ብግእዝ፡ ሳባውያንን ግሪኽን ተጻሒፎም ርእየዮም። ንምንታይ እዩ ብሰለስተ ቋንቋታት ተጻሒፉ?"),
+    ('eng', 'amh', "I also noticed the inscriptions nearby in Ge'ez, Sabaean, and Greek. Why three languages?", "በአቅራቢያው ያሉትን ጽሁፎች በግዕዝ፣ በሳባውያን እና በግሪክ ተጽፈው አይቻለሁ። ለምን በሦስት ቋንቋዎች ተጻፈ?"),
+    ('tir', 'eng', "ኣብ ጥቓኡ ዘለዉ ጽሑፋት ብግእዝ፡ ሳባውያንን ግሪኽን ተጻሒፎም ርእየዮም። ንምንታይ እዩ ብሰለስተ ቋንቋታት ተጻሒፉ?", "I also noticed the inscriptions nearby in Ge'ez, Sabaean, and Greek. Why three languages?"),
+    ('amh', 'eng', "በአቅራቢያው ያሉትን ጽሁፎች በግዕዝ፣ በሳባውያን እና በግሪክ ተጽፈው አይቻለሁ። ለምን በሦስት ቋንቋዎች ተጻፈ?", "I also noticed the inscriptions nearby in Ge'ez, Sabaean, and Greek. Why three languages?"),
+
+    ('eng', 'tir', "King Ezana wrote it in three languages so international trade partners from Rome and South Arabia could understand his royal decrees.", "ንጉሥ ኢዛና ብዓለም ደረጃ ዝነበሩ ናይ ንግዲ መሻርኽቱ ካብ ሮማን ደቡብ ዓረብን ንክርድእዎ ኢሉ እዩ ብሰለስተ ቋንቋታት ጽሒፍዎ።"),
+    ('eng', 'amh', "King Ezana wrote it in three languages so international trade partners from Rome and South Arabia could understand his royal decrees.", "ንጉሥ ኢዛና ከሮምና ከደቡብ አረቢያ የመጡ ዓለም አቀፍ የንግድ አጋሮች የንጉሱን አዋጅ እንዲረዱ ብሎ ነው በሦስት ቋንቋዎች የጻፈው።"),
+    ('tir', 'eng', "ንጉሥ ኢዛና ብዓለም ደረጃ ዝነበሩ ናይ ንግዲ መሻርኽቱ ካብ ሮማን ደቡብ ዓረብን ንክርድእዎ ኢሉ እዩ ብሰለስተ ቋንቋታት ጽሒፍዎ።", "King Ezana wrote it in three languages so international trade partners from Rome and South Arabia could understand his royal decrees."),
+    ('amh', 'eng', "ንጉሥ ኢዛና ከሮምና ከደቡብ አረቢያ የመጡ ዓለም አቀፍ የንግድ አጋሮች የንጉሱን አዋጅ እንዲረዱ ብሎ ነው በሦስት ቋንቋዎች የጻፈው።", "King Ezana wrote it in three languages so international trade partners from Rome and South Arabia could understand his royal decrees."),
+
+    ('eng', 'tir', "Is the Church of Our Lady Mary of Zion nearby? Can visitors see the Ark of the Covenant?", "ቤተክርስትያን ቅድስት ማርያም ጽዮን ኣብዚ ጥቓ ድዩ ዘሎ? በጻሕቲ ነቲ ታቦተ ጽዮን ክርእይዎ ይፍቀድ ድዩ?"),
+    ('eng', 'amh', "Is the Church of Our Lady Mary of Zion nearby? Can visitors see the Ark of the Covenant?", "የቅድስት ማርያም ጽዮን ቤተክርስቲያን እዚ አቅራቢያ ነው ያለው? ጎብኚዎች ታቦተ ጽዮንን ማየት ይችላሉ?"),
+    ('tir', 'eng', "ቤተክርስትያን ቅድስት ማርያም ጽዮን ኣብዚ ጥቓ ድዩ ዘሎ? በጻሕቲ ነቲ ታቦተ ጽዮን ክርእይዎ ይፍቀድ ድዩ?", "Is the Church of Our Lady Mary of Zion nearby? Can visitors see the Ark of the Covenant?"),
+    ('amh', 'eng', "የቅድስት ማርያም ጽዮን ቤተክርስቲያን እዚ አቅራቢያ ነው ያለው? ጎብኚዎች ታቦተ ጽዮንን ማየት ይችላሉ?", "Is the Church of Our Lady Mary of Zion nearby? Can visitors see the Ark of the Covenant?"),
+
+    ('eng', 'tir', "Yes, it is right nearby. The Ark is guarded solely by one consecrated monk, but we can visit the historical museum to see the ancient crowns and manuscripts.", "እወ ኣብዚ ጥቓ እዩ። እቲ ታቦት ብሓደ ውፉይ መነኮስ ጥራይ እዩ ዝሕሎ፡ ንሕና ግን ነቲ ታሪኻዊ ቤተ መዘክርን ጥንታውያን ዘውድታትን ክንርኢ ንኽእል ኢና።"),
+    ('eng', 'amh', "Yes, it is right nearby. The Ark is guarded solely by one consecrated monk, but we can visit the historical museum to see the ancient crowns and manuscripts.", "አዎ እዚ ቅርብ ነው ያለው። ታቦቱ በአንድ የተመረጠ መነኩሴ ብቻ ነው የሚጠበቀው፣ እኛ ግን ታሪካዊውን ቤተ መዘክርና የጥንት ዘውዶችን ማየት እንችላለን።"),
+    ('tir', 'eng', "እወ ኣብዚ ጥቓ እዩ። እቲ ታቦት ብሓደ ውፉይ መነኮስ ጥራይ እዩ ዝሕሎ፡ ንሕና ግን ነቲ ታሪኻዊ ቤተ መዘክርን ጥንታውያን ዘውድታትን ክንርኢ ንኽእል ኢና።", "Yes, it is right nearby. The Ark is guarded solely by one consecrated monk, but we can visit the historical museum to see the ancient crowns and manuscripts."),
+    ('amh', 'eng', "አዎ እዚ ቅርብ ነው ያለው። ታቦቱ በአንድ የተመረጠ መነኩሴ ብቻ ነው የሚጠበቀው፣ እኛ ግን ታሪካዊውን ቤተ መዘክርና የጥንት ዘውዶችን ማየት እንችላለን።", "Yes, it is right nearby. The Ark is guarded solely by one consecrated monk, but we can visit the historical museum to see the ancient crowns and manuscripts."),
+
+    ('eng', 'tir', "Now, let us sit in the shade and enjoy traditional Axumite coffee with fragrant frankincense.", "ሕጂ ድማ ንዑ ኣብዚ ጽላል ኮፍ ኢልና ባህላዊ ቡን ኣክሱም ምስ ጥዑም ዕጣን ንስተ።"),
+    ('eng', 'amh', "Now, let us sit in the shade and enjoy traditional Axumite coffee with fragrant frankincense.", "አሁን በዚህ ጥላ ስር ተቀምጠን ባህላዊውን የአክሱም ቡና ከጥሩ እጣን ጋር እንጠጣ።"),
+    ('tir', 'eng', "ሕጂ ድማ ንዑ ኣብዚ ጽላል ኮፍ ኢልና ባህላዊ ቡን ኣክሱም ምስ ጥዑም ዕጣን ንስተ።", "Now, let us sit in the shade and enjoy traditional Axumite coffee with fragrant frankincense."),
+    ('amh', 'eng', "አሁን በዚህ ጥላ ስር ተቀምጠን ባህላዊውን የአክሱም ቡና ከጥሩ እጣን ጋር እንጠጣ።", "Now, let us sit in the shade and enjoy traditional Axumite coffee with fragrant frankincense."),
+
+    ('eng', 'tir', "That sounds wonderful! Thank you so much for your generous hospitality.", "ኣዝዩ ባህ ዘብል እዩ! ስለቲ ለጋስ ኣቀባብላኻ ኣዚየ እየ ዘመስግነካ።"),
+    ('eng', 'amh', "That sounds wonderful! Thank you so much for your generous hospitality.", "በጣም ደስ ይላል! ስላደረክልኝ ሞቅ ያለ አቀባበል እጅግ አድርጌ አመሰግናለሁ።"),
+    ('tir', 'eng', "ኣዝዩ ባህ ዘብል እዩ! ስለቲ ለጋስ ኣቀባብላኻ ኣዚየ እየ ዘመስግነካ።", "That sounds wonderful! Thank you so much for your generous hospitality."),
+    ('amh', 'eng', "በጣም ደስ ይላል! ስላደረክልኝ ሞቅ ያለ አቀባበል እጅግ አድርጌ አመሰግናለሁ።", "That sounds wonderful! Thank you so much for your generous hospitality."),
+]
+
+for s, t, src_t, tgt_t in demo_turn_pairs:
+    add_pair(s, t, src_t, tgt_t)
+
 
 # 2. Ingest Glossaries
 glossary_maps = [
@@ -901,6 +1016,39 @@ out_path = ROOT / "ethiopian_translator" / "lib" / "offline_translation_memory.d
 dart_header = """// GENERATED FILE - DO NOT EDIT MANUALLY
 // Generated by scripts/generate_dart_tm.py
 
+/// Result of a Translation Memory lookup with optional source script repair.
+class TmMatchResult {
+  final String translation;
+  final String repairedSource;
+  const TmMatchResult({required this.translation, required this.repairedSource});
+}
+
+class _CanonicalSentence {
+  final String amh;
+  final String orm;
+  final String tir;
+  final String som;
+  final String eng;
+  const _CanonicalSentence({
+    this.amh = '',
+    this.orm = '',
+    this.tir = '',
+    this.som = '',
+    this.eng = '',
+  });
+
+  String getFor(String lang) {
+    switch (lang) {
+      case 'amh': return amh;
+      case 'orm': return orm;
+      case 'tir': return tir;
+      case 'som': return som;
+      case 'eng': return eng;
+      default: return '';
+    }
+  }
+}
+
 /// On-device Translation Memory & Curated Glossary for Lisan.
 /// Provides instant (<0.1ms), 100% accurate human-curated translations
 /// for high-frequency conversational, medical, clinic, market, and transit phrases
@@ -909,9 +1057,7 @@ class OfflineTranslationMemory {
   static const Map<String, String> _homophones = {
 """
 
-dart_middle = r'''  };
-
-  static final RegExp _punctRegex = RegExp(r"""[\s!?.,:;፣።፧፨()[\]"«»?]+""");
+dart_middle = r'''  static final RegExp _punctRegex = RegExp(r"""[\s!?.,:;፣።፧፨()[\]"«»?]+""");
 
   /// Normalize spoken and colloquial Amharic into standard orthography.
   /// Preserves sentence delimiters and punctuation.
@@ -1143,6 +1289,174 @@ dart_middle = r'''  };
     }
   }
 
+  /// Automatically recognises the spoken language from speech transcription text.
+  /// Identifies Amharic ('amh'), Tigrinya ('tir'), Afaan Oromoo ('orm'),
+  /// Somali ('som'), or English ('eng') using script analysis, vocabulary, and phonotactics.
+  static String detectLanguage(String text, {String defaultLang = 'amh'}) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return defaultLang;
+
+    // 1. Explicit STT model language token cues
+    final lower = trimmed.toLowerCase();
+    if (lower.contains('[amh]') || lower.startsWith('amh:')) return 'amh';
+    if (lower.contains('[tir]') || lower.startsWith('tir:')) return 'tir';
+    if (lower.contains('[orm]') || lower.startsWith('orm:')) return 'orm';
+    if (lower.contains('[som]') || lower.startsWith('som:')) return 'som';
+    if (lower.contains('[eng]') || lower.startsWith('eng:')) return 'eng';
+
+    // 2. Ethiopic (Ge'ez) script analysis
+    // Detects whether Ge'ez represents Amharic, Tigrinya, or phonetic English/Oromo/Somali transcribed by AfriHuBERT CTC
+    final ethiopicMatches = RegExp(r'[\u1200-\u137F\u1380-\u139F\u2D80-\u2DDF\uAB00-\uAB2F]').allMatches(trimmed);
+    if (ethiopicMatches.isNotEmpty) {
+      var tirScore = 0;
+      var amhScore = 0;
+      var ormScore = 0;
+      var somScore = 0;
+      var engScore = 0;
+
+      // Check for phonetic English transcribed into Ge'ez letters
+      const engGeezWords = [
+        'ሄሎ', 'ሃሎ', 'ሀሎ', 'ሃው', 'ሀዋርዩ', 'ፕሊስ', 'ፕሊዝ', 'ቴንክ', 'ታንክ', 'ቴንኪው',
+        'ቴንክዩ', 'ዌር', 'ኢዝ', 'ዋት', 'ዋትስ', 'ጉድ', 'ሞርኒንግ', 'ፋይን', 'አይም', 'ኦኬ',
+        'ኦኬይ', 'የስ', 'ኖ', 'ሀርቱ', 'ፔይን', 'ሄዴክ', 'ፊቨር', 'ነርስ', 'ክሊኒክ', 'ታይርድ',
+      ];
+      for (final w in engGeezWords) {
+        if (trimmed.contains(w)) engScore += 4;
+      }
+
+      // Check for phonetic Afaan Oromoo transcribed into Ge'ez letters
+      const ormGeezWords = [
+        'አካም', 'ኣካም', 'ጅርታ', 'ጅርቱ', 'ነጋ', 'ነጋዳ', 'ነጋአ', 'ፈያ', 'ፈያዳ', 'ማል',
+        'ማልቱ', 'ገልቶሚ', 'ገላቶሚ', 'ባርባዳ', 'ኤዬ', 'ሚቲ', 'ኦልቴ', 'ቡልቴ', 'ቢሻን',
+        'ቆሪቻ', 'ዱኩባ', 'ዱኩበ', 'ዲቤ', 'ቂቤ', 'አባ', 'ኮቲ', 'አቲ', 'አኒ',
+      ];
+      for (final w in ormGeezWords) {
+        if (trimmed.contains(w)) ormScore += 4;
+      }
+
+      // Check for phonetic Somali transcribed into Ge'ez letters
+      const somGeezWords = [
+        'ሲዴ', 'ሲደ', 'ታሃይ', 'ታሀይ', 'ቲሂን', 'ኢስካ', 'ዋራን', 'ዋን', 'ፊሰን', 'ፊካን',
+        'ማሃድሰኒድ', 'ማክሳ', 'ነበድ', 'ናባድ', 'መያ', 'ቢዮ', 'ዳዎ', 'አዲጉ', 'አኒጉ', 'ገላብ',
+        'ሱበክ', 'ዋናግሰን',
+      ];
+      for (final w in somGeezWords) {
+        if (trimmed.contains(w)) somScore += 4;
+      }
+
+      // Tigrinya-distinct consonants and vowels (ቐ, ቘ, ዀ, ዸ, ጘ, ኽ, initial ኣ)
+      if (RegExp(r'[\u1250-\u125D\u12B8-\u12BF\u12F8-\u12FD\u1318-\u131D\u1358-\u135A]').hasMatch(trimmed)) {
+        tirScore += 5;
+      }
+      if (trimmed.contains('ኣ')) {
+        tirScore += 2;
+      }
+
+      // Amharic-distinct consonants (ኘ, ዠ, ጨ, ጰ)
+      if (RegExp(r'[\u1298-\u129F\u12E0-\u12E7\u1328-\u132F\u1338-\u133F]').hasMatch(trimmed)) {
+        amhScore += 5;
+      }
+
+      // High-frequency Tigrinya lexical markers
+      const tirWords = [
+        'ከመይ', 'ጽቡቕ', 'ጽቡቅ', 'የቐንየለይ', 'የቀንየለይ', 'ኣለኹ', 'አለኹ', 'ኣለኻ', 'አለኻ',
+        'ኣለኺ', 'አለኺ', 'ኣለዉ', 'አለዉ', 'ኣይኮነን', 'ኣይኮነን', 'ሓቂ', 'ደቒ', 'ደቂ', 'ዓዲ',
+        'ጥዕና', 'ይቕሬታ', 'ይቅሬታ', 'እንታይ', 'ናይ', 'ኣበይ', 'አበይ', 'ሕጂ', 'ሕዚ', 'መን',
+        'ንሕና', 'ንስኻ', 'ንስኺ', 'እወ', 'ኣይፋልን', 'ማይ', 'በጃኻ', 'በጃኺ', 'ሓወይ', 'ሓፍተይ',
+        'ደሓን', 'ሽምካ', 'ሽምኪ', 'ትግርኛ', 'ክንደይ',
+      ];
+      for (final w in tirWords) {
+        if (trimmed.contains(w)) tirScore += 4;
+      }
+
+      // High-frequency Amharic lexical markers
+      const amhWords = [
+        'ነው', 'ነኝ', 'ነህ', 'ነሽ', 'ናት', 'ናቸው', 'ናችሁ', 'ነበር', 'የለም', 'አለ',
+        'አይደለም', 'እሺ', 'አመሰግናለሁ', 'እንዴት', 'ምን', 'ማን', 'የት', 'መቼ', 'ለምን',
+        'እኔ', 'አንተ', 'አንቺ', 'እሱ', 'እሷ', 'እኛ', 'እናንተ', 'እነሱ', 'በጣም', 'ጥሩ',
+        'ውሃ', 'ምግብ', 'ቤት', 'ሆስፒታል', 'መድሃኒት', 'ህመም', 'ዶክተር', 'ስምህ', 'ስምሽ',
+        'አማርኛ', 'ስንት', 'ዋጋ', 'ይቅርታ', 'ደህና', 'እንደምን',
+      ];
+      for (final w in amhWords) {
+        if (trimmed.contains(w)) amhScore += 4;
+      }
+
+      final scores = {'tir': tirScore, 'eng': engScore, 'orm': ormScore, 'som': somScore, 'amh': amhScore};
+      final sortedEntries = scores.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+      if (sortedEntries.first.value > 0) {
+        return sortedEntries.first.key;
+      }
+
+      // Fallback if no specific dialect cues matched
+      return defaultLang;
+    }
+
+    // 3. Latin script: Afaan Oromoo vs Somali vs English
+    final words = lower.split(RegExp(r'\s+'));
+    var ormScore = 0;
+    var somScore = 0;
+    var engScore = 0;
+
+    const ormKeywords = {
+      'akkam', 'nagaa', 'maal', 'eessa', 'yoom', 'maaliif', 'eenyu', 'fayyaa',
+      'galatoomi', 'baga', 'ani', 'ati', 'inni', 'isheen', 'nuti', 'isin', 'isaan',
+      'gaarii', 'dhuguma', 'hin', 'miti', 'akka', 'waan', 'biyya', 'mana',
+      'bishaan', 'dhibee', 'hospitaala', 'qoricha', 'dhukkuba', 'doktoora',
+      'guyyaa', 'halkan', 'tolle', 'eyyee', 'lakki', 'maaloo', 'jirta', 'jirtu',
+      'obboo', 'aadde', 'oromoo', 'oromiyaa', 'meeqa', 'kee', 'koo',
+    };
+
+    const somKeywords = {
+      'sidee', 'tahay', 'subax', 'galab', 'wanaagsan', 'mahadsanid', 'waan',
+      'fiicanahay', 'magacaa', 'xagee', 'immisa', 'haa', 'maya', 'fadlan',
+      'maxaa', 'waayo', 'goorma', 'kuma', 'aniga', 'adiga', 'isaga', 'iyada',
+      'annaga', 'idinka', 'iyaga', 'biyo', 'guri', 'isbitaal', 'dhaqtar',
+      'dawo', 'xanuun', 'nabad', 'soo', 'dhawoow', 'shaah', 'lacag', 'maanta',
+      'somali', 'soomaali', 'hayee', 'fiican', 'adigu',
+    };
+
+    const engKeywords = {
+      'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i', 'it',
+      'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at', 'this',
+      'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she', 'or',
+      'an', 'will', 'my', 'one', 'all', 'would', 'there', 'their', 'what',
+      'so', 'up', 'out', 'if', 'about', 'who', 'get', 'which', 'go', 'me',
+      'when', 'make', 'can', 'like', 'time', 'no', 'just', 'him', 'know',
+      'take', 'people', 'into', 'year', 'your', 'good', 'some', 'could',
+      'them', 'see', 'other', 'than', 'then', 'now', 'look', 'only', 'come',
+      'its', 'over', 'think', 'also', 'back', 'after', 'use', 'two', 'how',
+      'our', 'work', 'first', 'well', 'way', 'even', 'new', 'want', 'because',
+      'any', 'these', 'give', 'day', 'most', 'us', 'hello', 'hi', 'please',
+      'thank', 'thanks', 'pain', 'doctor', 'hospital', 'water', 'medicine',
+      'help', 'where', 'is', 'are', 'am', 'yes', 'headache', 'fever', 'stomach',
+      'nurse', 'emergency', 'food', 'market', 'price',
+    };
+
+    for (final rawWord in words) {
+      final clean = rawWord.replaceAll(RegExp(r'[^a-z]'), '');
+      if (clean.isEmpty) continue;
+
+      if (ormKeywords.contains(clean)) ormScore += 3;
+      if (somKeywords.contains(clean)) somScore += 3;
+      if (engKeywords.contains(clean)) engScore += 3;
+
+      if (clean.contains('dh') || clean.contains('ny') || clean.contains('ch')) ormScore += 1;
+      if (clean.contains('x') || clean.contains('c') || clean.contains('kh')) somScore += 1;
+      if (clean.contains('th') || clean.contains('wh') || clean.contains('tion')) engScore += 2;
+    }
+
+    if (ormScore > somScore && ormScore > engScore) return 'orm';
+    if (somScore > ormScore && somScore > engScore) return 'som';
+    if (engScore > ormScore && engScore > somScore) return 'eng';
+
+    // Phonotactic heuristic for Oromo / Somali vowel lengthening vs English
+    if (RegExp(r'[aeiou]{2}').hasMatch(lower)) {
+      return (somScore >= ormScore && somScore > 0) ? 'som' : 'orm';
+    }
+
+    return defaultLang;
+  }
+
   /// Normalizes source text before feeding into NLLB tokenizer for any language.
   static String normalizeForNmt(String text, String sourceLang) {
     return cleanSpokenTranscription(text, sourceLang);
@@ -1226,6 +1540,206 @@ dart_middle = r'''  };
     // 3. High-Priority Semantic Intent Classification (Medical, Greetings, Emergencies)
     final intentMatch = _matchSemanticIntent(norm, sourceLang, targetLang);
     if (intentMatch != null) return intentMatch;
+
+    return null;
+  }
+
+  /// Extracts the base consonant skeleton for Ge'ez script, normalizing vowels and homophones.
+  static String geezSkeleton(String text) {
+    final sb = StringBuffer();
+    for (var i = 0; i < text.length; i++) {
+      final ch = text[i];
+      final base = _geezBaseMap[ch];
+      if (base != null) {
+        sb.write(base);
+      } else if (RegExp(r'[a-zA-Z0-9]').hasMatch(ch)) {
+        sb.write(ch.toLowerCase());
+      }
+    }
+    return sb.toString();
+  }
+
+  /// Extracts the lowercase alphanumeric skeleton for Latin scripts (Oromo, Somali, English).
+  static String latinSkeleton(String text) {
+    final sb = StringBuffer();
+    for (var i = 0; i < text.length; i++) {
+      final code = text.codeUnitAt(i);
+      if (code >= 97 && code <= 122) {
+        sb.writeCharCode(code);
+      } else if (code >= 65 && code <= 90) {
+        sb.writeCharCode(code + 32);
+      } else if (code >= 48 && code <= 57) {
+        sb.writeCharCode(code);
+      }
+    }
+    return sb.toString();
+  }
+
+  /// Calculates Levenshtein edit distance between two strings.
+  static int _levenshtein(String s1, String s2) {
+    if (s1 == s2) return 0;
+    if (s1.isEmpty) return s2.length;
+    if (s2.isEmpty) return s1.length;
+    final v0 = List<int>.generate(s2.length + 1, (i) => i);
+    final v1 = List<int>.filled(s2.length + 1, 0);
+    for (var i = 0; i < s1.length; i++) {
+      v1[0] = i + 1;
+      for (var j = 0; j < s2.length; j++) {
+        final cost = (s1[i] == s2[j]) ? 0 : 1;
+        v1[j + 1] = (v1[j] + 1 < v0[j + 1] + 1)
+            ? (v1[j] + 1 < v0[j] + cost ? v1[j] + 1 : v0[j] + cost)
+            : (v0[j + 1] + 1 < v0[j] + cost ? v0[j + 1] + 1 : v0[j] + cost);
+      }
+      for (var j = 0; j <= s2.length; j++) {
+        v0[j] = v1[j];
+      }
+    }
+    return v1[s2.length];
+  }
+
+  /// Calculates normalized string similarity using Levenshtein distance (0.0 to 1.0).
+  static double levenshteinSimilarity(String s1, String s2) {
+    if (s1 == s2) return 1.0;
+    final maxLen = s1.length > s2.length ? s1.length : s2.length;
+    if (maxLen == 0) return 1.0;
+    final dist = _levenshtein(s1, s2);
+    return 1.0 - (dist / maxLen);
+  }
+
+  /// Calculates token overlap / Jaccard score between query and candidate.
+  static double tokenOverlap(String s1, String s2) {
+    final t1 = s1.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toSet();
+    final t2 = s2.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toSet();
+    if (t1.isEmpty || t2.isEmpty) return 0.0;
+    var matches = 0;
+    for (final w1 in t1) {
+      if (t2.contains(w1)) {
+        matches++;
+      } else {
+        // Prefix matching for fast-speech dropped suffixes (e.g. ሆስፒታል in ሆስፒታሉ, ያመኛ in ያመኛል)
+        for (final w2 in t2) {
+          if (w1.length >= 3 && w2.length >= 3) {
+            if (w1.startsWith(w2) || w2.startsWith(w1)) {
+              matches++;
+              break;
+            }
+          }
+        }
+      }
+    }
+    return (2.0 * matches) / (t1.length + t2.length);
+  }
+
+  /// Calculates character bigram Sørensen-Dice similarity coefficient (0.0 to 1.0).
+  static double bigramDiceSimilarity(String s1, String s2) {
+    if (s1.length < 2 || s2.length < 2) return 0.0;
+    final b1 = <String>{};
+    for (var i = 0; i < s1.length - 1; i++) {
+      b1.add(s1.substring(i, i + 2));
+    }
+    final b2 = <String>{};
+    for (var i = 0; i < s2.length - 1; i++) {
+      b2.add(s2.substring(i, i + 2));
+    }
+    var intersection = 0;
+    for (final bg in b1) {
+      if (b2.contains(bg)) intersection++;
+    }
+    return (2.0 * intersection) / (b1.length + b2.length);
+  }
+
+  /// Lookup with Acoustic / CTC Speech Recognition Repair.
+  /// If the exact or normalized phrase matches, returns the translation and repairs source text.
+  /// If spoken CTC input has phonetic distortions, dropped vowels, or missing word boundaries,
+  /// uses Consonant Skeleton, Levenshtein Distance & Token Overlap to resolve the true spoken sentence,
+  /// repairing source text to canonical script and returning the exact translation.
+  static TmMatchResult? lookupWithRepair(
+    String text, {
+    required String sourceLang,
+    required String targetLang,
+  }) {
+    if (text.isEmpty || sourceLang == targetLang) return null;
+
+    // 1. Direct or particle-stripped lookup
+    final direct = lookup(text, sourceLang: sourceLang, targetLang: targetLang);
+    if (direct != null) {
+      final norm = normalize(text);
+      for (final s in _canonicalSentences) {
+        final src = s.getFor(sourceLang);
+        if (src.isNotEmpty && normalize(src) == norm) {
+          final tgt = s.getFor(targetLang);
+          return TmMatchResult(
+            translation: tgt.isNotEmpty ? tgt : direct,
+            repairedSource: src,
+          );
+        }
+      }
+      return TmMatchResult(
+        translation: direct,
+        repairedSource: cleanSpokenTranscription(text, sourceLang),
+      );
+    }
+
+    // 2. High-Performance Multi-Stage Fuzzy Acoustic Repair for fast / noisy STT
+    final isEthiopic = (sourceLang == 'amh' || sourceLang == 'tir');
+    final cleaned = cleanSpokenTranscription(text, sourceLang);
+    final normCleaned = normalize(cleaned);
+    final querySkel = isEthiopic ? geezSkeleton(cleaned) : latinSkeleton(cleaned);
+    if (querySkel.length < 2) return null;
+
+    _CanonicalSentence? bestSentence;
+    double bestComposite = 0.0;
+
+    for (final s in _canonicalSentences) {
+      final candSrc = s.getFor(sourceLang);
+      final candTgt = s.getFor(targetLang);
+      if (candSrc.isEmpty || candTgt.isEmpty) continue;
+
+      final candSkel = isEthiopic ? geezSkeleton(candSrc) : latinSkeleton(candSrc);
+      final dice = bigramDiceSimilarity(querySkel, candSkel);
+      final lev = levenshteinSimilarity(querySkel, candSkel);
+      final tok = tokenOverlap(normCleaned, normalize(candSrc));
+
+      // Composite scoring giving high weight to edit similarity and token prefix match
+      final composite = (lev * 0.45) + (dice * 0.35) + (tok * 0.20);
+      if (composite > bestComposite) {
+        bestComposite = composite;
+        bestSentence = s;
+      }
+    }
+
+    // Threshold: 0.58 for composite, or high token overlap with decent skeleton
+    if (bestSentence != null && (bestComposite >= 0.58 || (bestComposite >= 0.52 && querySkel.length >= 6))) {
+      final repairedSrc = bestSentence.getFor(sourceLang);
+      final translation = bestSentence.getFor(targetLang);
+      return TmMatchResult(
+        translation: translation,
+        repairedSource: repairedSrc,
+      );
+    }
+
+    // 3. Fallback table scan against _data for single-word / short phrase repair
+    final key = '${sourceLang}_$targetLang';
+    final table = _data[key];
+    if (table != null && normCleaned.length >= 3) {
+      String? bestKey;
+      double bestSim = 0.0;
+      for (final k in table.keys) {
+        // Fast length filter
+        if ((k.length - normCleaned.length).abs() > 4) continue;
+        final sim = levenshteinSimilarity(normCleaned, k);
+        if (sim > bestSim) {
+          bestSim = sim;
+          bestKey = k;
+        }
+      }
+      if (bestKey != null && bestSim >= 0.72) {
+        return TmMatchResult(
+          translation: table[bestKey]!,
+          repairedSource: bestKey,
+        );
+      }
+    }
 
     return null;
   }
@@ -1614,7 +2128,7 @@ dart_middle = r'''  };
         final isPlural = tokens.contains('ኣለኹም') || tokens.contains('ዲኹም');
         final isFem = tokens.contains('ኣለኺ') || tokens.contains('ዲኺ');
         return _formatIntent({
-          'amh': isPlural ? 'ሰላም፣ እንዴት ናችሁ? ደህና ናችሁ?' : 'ሰላም፣ እንዴት ነህ? ደህና ነህ?',
+          'amh': isPlural ? 'ሰላም፣ እንዴት ናችሁ? ደህና ናችሁ?' : (isFem ? 'ሰላም፣ እንዴት ነሽ? ደህና ነሽ?' : 'ሰላም፣ እንዴት ነህ? ደህና ነህ?'),
           'eng': isPlural ? 'Hello, how are you all? Are you all doing well?' : 'Hello, how are you? Are you doing well?',
           'orm': isPlural ? 'Akkam jirtu, nagaa qabduu?' : 'Akkam jirta, nagaa qabdaa?',
           'som': isPlural ? 'Sidee tihiin, ma fiican tihiin?' : 'Sidee tahay, ma fiican tahay?',
@@ -1842,6 +2356,198 @@ dart_middle = r'''  };
       }
     }
 
+    // --- Intent: Hospital / Emergency ---
+    if (sourceLang == 'amh') {
+      if (tokens.contains('ሆስፒታል') || tokens.contains('ሆስፒታሉ') || (tokens.contains('አደጋ') && tokens.contains('ክፍል'))) {
+        return _formatIntent({
+          'eng': 'Where is the hospital?',
+          'orm': 'Hospitaalli eessa jira?',
+          'tir': 'ሆስፒታል ኣበይ ኣሎ?',
+          'som': 'Isbitaalku xaggee ku yaallaa?',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'eng') {
+      if (norm.contains('hospital') || norm.contains('emergency room')) {
+        return _formatIntent({
+          'amh': 'ሆስፒታሉ የት ነው?',
+          'orm': 'Hospitaalli eessa jira?',
+          'tir': 'ሆስፒታል ኣበይ ኣሎ?',
+          'som': 'Isbitaalku xaggee ku yaallaa?',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'orm') {
+      if (norm.contains('hospitaal') || norm.contains('ariifachiisaa')) {
+        return _formatIntent({
+          'amh': 'ሆስፒታሉ የት ነው?',
+          'eng': 'Where is the hospital?',
+          'tir': 'ሆስፒታል ኣበይ ኣሎ?',
+          'som': 'Isbitaalku xaggee ku yaallaa?',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'tir') {
+      if (tokens.contains('ሆስፒታል') || (tokens.contains('ህጹጽ') && tokens.contains('ረድኤት'))) {
+        return _formatIntent({
+          'amh': 'ሆስፒታሉ የት ነው?',
+          'eng': 'Where is the hospital?',
+          'orm': 'Hospitaalli eessa jira?',
+          'som': 'Isbitaalku xaggee ku yaallaa?',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'som') {
+      if (norm.contains('isbitaal') || norm.contains('degdeg')) {
+        return _formatIntent({
+          'amh': 'ሆስፒታሉ የት ነው?',
+          'eng': 'Where is the hospital?',
+          'orm': 'Hospitaalli eessa jira?',
+          'tir': 'ሆስፒታል ኣበይ ኣሎ?',
+        }, targetLang);
+      }
+    }
+
+    // --- Intent: Restroom / Toilet ---
+    if (sourceLang == 'amh') {
+      if (tokens.contains('መፀዳጃ') || tokens.contains('ሽንት') || tokens.contains('መጸዳጃ')) {
+        return _formatIntent({
+          'eng': 'Where is the restroom?',
+          'orm': 'Manni fincaanii eessa jira?',
+          'tir': 'ሽቓቕ ኣበይ ኣሎ?',
+          'som': 'Musqushu xaggee ku yaallaa?',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'eng') {
+      if (norm.contains('restroom') || norm.contains('toilet') || norm.contains('bathroom')) {
+        return _formatIntent({
+          'amh': 'መፀዳጃ ቤት የት ነው?',
+          'orm': 'Manni fincaanii eessa jira?',
+          'tir': 'ሽቓቕ ኣበይ ኣሎ?',
+          'som': 'Musqushu xaggee ku yaallaa?',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'orm') {
+      if (norm.contains('fincaan')) {
+        return _formatIntent({
+          'amh': 'መፀዳጃ ቤት የት ነው?',
+          'eng': 'Where is the restroom?',
+          'tir': 'ሽቓቕ ኣበይ ኣሎ?',
+          'som': 'Musqushu xaggee ku yaallaa?',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'tir') {
+      if (tokens.contains('ሽቓቕ') || tokens.contains('ፍንጫሕ')) {
+        return _formatIntent({
+          'amh': 'መፀዳጃ ቤት የት ነው?',
+          'eng': 'Where is the restroom?',
+          'orm': 'Manni fincaanii eessa jira?',
+          'som': 'Musqushu xaggee ku yaallaa?',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'som') {
+      if (norm.contains('musqul')) {
+        return _formatIntent({
+          'amh': 'መፀዳጃ ቤት የት ነው?',
+          'eng': 'Where is the restroom?',
+          'orm': 'Manni fincaanii eessa jira?',
+          'tir': 'ሽቓቕ ኣበይ ኣሎ?',
+        }, targetLang);
+      }
+    }
+
+    // --- Intent: Prescribe Medicine ---
+    if (sourceLang == 'amh') {
+      if ((tokens.contains('መድሃኒት') || tokens.contains('መድኃኒት')) && (tokens.any((t) => t.startsWith('አዝል') || t.startsWith('እጽፍ')))) {
+        return _formatIntent({
+          'eng': 'I will prescribe medicine for you.',
+          'orm': 'Qoricha siif ajaja.',
+          'tir': 'መድሃኒት ክእዝዘልካ እየ።',
+          'som': 'Daawaan kuu qorayaa.',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'eng') {
+      if (norm.contains('prescribe') && norm.contains('medicine')) {
+        return _formatIntent({
+          'amh': 'መድኃኒት አዝልሃለሁ።',
+          'orm': 'Qoricha siif ajaja.',
+          'tir': 'መድሃኒት ክእዝዘልካ እየ።',
+          'som': 'Daawaan kuu qorayaa.',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'orm') {
+      if (norm.contains('qoricha') && (norm.contains('barreessa') || norm.contains('ajaja'))) {
+        return _formatIntent({
+          'amh': 'መድኃኒት አዝልሃለሁ።',
+          'eng': 'I will prescribe medicine for you.',
+          'tir': 'መድሃኒት ክእዝዘልካ እየ።',
+          'som': 'Daawaan kuu qorayaa.',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'tir') {
+      if (tokens.contains('መድሃኒት') && (tokens.contains('ክጽሕፈልካ') || tokens.contains('ክእዝዘልካ'))) {
+        return _formatIntent({
+          'amh': 'መድኃኒት አዝልሃለሁ።',
+          'eng': 'I will prescribe medicine for you.',
+          'orm': 'Qoricha siif ajaja.',
+          'som': 'Daawaan kuu qorayaa.',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'som') {
+      if (norm.contains('dawo') && norm.contains('qor')) {
+        return _formatIntent({
+          'amh': 'መድኃኒት አዝልሃለሁ።',
+          'eng': 'I will prescribe medicine for you.',
+          'orm': 'Qoricha siif ajaja.',
+          'tir': 'መድሃኒት ክእዝዘልካ እየ።',
+        }, targetLang);
+      }
+    }
+
+    // --- Intent: Water ---
+    if (sourceLang == 'amh') {
+      if (tokens.contains('ውሃ') && (tokens.contains('እፈልጋለሁ') || tokens.contains('ስጠኝ') || tokens.contains('መጠጣት'))) {
+        return _formatIntent({
+          'eng': 'I need water.',
+          'orm': 'Bishaan barbaada.',
+          'tir': 'ማይ እደሊ ኣለኹ።',
+          'som': 'Biyo baan rabaa.',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'eng') {
+      if (norm.contains('water') && (norm.contains('need') || norm.contains('want') || norm.contains('drink') || norm.contains('please'))) {
+        return _formatIntent({
+          'amh': 'ውሃ እፈልጋለሁ።',
+          'orm': 'Bishaan barbaada.',
+          'tir': 'ማይ እደሊ ኣለኹ።',
+          'som': 'Biyo baan rabaa.',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'orm') {
+      if (norm.contains('bishaan') && (norm.contains('barbaada') || norm.contains('dhugu'))) {
+        return _formatIntent({
+          'amh': 'ውሃ እፈልጋለሁ።',
+          'eng': 'I need water.',
+          'tir': 'ማይ እደሊ ኣለኹ።',
+          'som': 'Biyo baan rabaa.',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'tir') {
+      if (tokens.contains('ማይ') && (tokens.contains('እደሊ') || tokens.contains('ስቴ'))) {
+        return _formatIntent({
+          'amh': 'ውሃ እፈልጋለሁ።',
+          'eng': 'I need water.',
+          'orm': 'Bishaan barbaada.',
+          'som': 'Biyo baan rabaa.',
+        }, targetLang);
+      }
+    } else if (sourceLang == 'som') {
+      if (norm.contains('biyo') && (norm.contains('rabaa') || norm.contains('cab'))) {
+        return _formatIntent({
+          'amh': 'ውሃ እፈልጋለሁ።',
+          'eng': 'I need water.',
+          'orm': 'Bishaan barbaada.',
+          'tir': 'ማይ እደሊ ኣለኹ።',
+        }, targetLang);
+      }
+    }
+
     return null;
   }
 
@@ -1932,6 +2638,88 @@ for k, v in [
     ('ፀ', 'ጸ'), ('ፁ', 'ጹ'), ('ፂ', 'ጺ'), ('ፃ', 'ጻ'), ('ፄ', 'ጼ'), ('ፅ', 'ጽ'), ('ፆ', 'ጾ'),
 ]:
     dart_lines.append(f"    '{k}': '{v}',")
+dart_lines.append("  };\n")
+
+# Consonant skeleton mapping for Ge'ez acoustic STT recovery
+GEEZ_GROUPS = [
+    'ሀሁሂሃሄህሆሇ', 'ለሉሊላሌልሎሏ', 'ሐሑሒሓሔሕሖሗ', 'መሙሚማሜምሞሟፙ', 'ሠሡሢሣሤሥሦሧ',
+    'ረሩሪራሬርሮሯ', 'ሰሱሲሳሴስሶሷ', 'ሸሹሺሻሼሽሾሿ', 'ቀቁቂቃቄቅቆቇቈቊቋቌቍ', 'በቡቢባቤብቦቧ',
+    'ቨቩቪቫቬቭቮቯ', 'ተቱቲታቴትቶቷ', 'ቸቹቺቻቼችቾቿ', 'ኀኁኂኃኄኅኆኇኈኊኋኌኍ', 'ነኑኒናኔንኖኗ',
+    'ኘኙኚኛኜኝኞኟ', 'አኡኢኣኤእኦኧ', 'ከኩኪካኬክኮኯኰኲኳኴኵ', 'ኸኹኺኻኼኽኾዏ', 'ወዉዊዋዌውዎ',
+    'ዐዑዒዓዔዕዖ', 'ዘዙዚዛዜዝዞዟ', 'ዠዡዢዣዤዥዦዧ', 'የዩዪያዬይዮ', 'ደዱዲዳዴድዶዷ',
+    'ጀጁጂጃጄጅጆጇ', 'ገጉጊጋጌግጎጏጐጒጓጔጕ', 'ጠጡጢጣጤጥጦጧ', 'ጨጩጪጫጬጭጮጯ', 'ጰጱጲጳጴጵጶጷ',
+    'ጸጹጺጻጼጽጾጿ', 'ፀፁፂፃፄፅፆ', 'ፈፉፊፋፌፍፎፏፚ', 'ፐፑፒፓፔፕፖፗ'
+]
+homo_base = {'ሐ': 'ሀ', 'ኀ': 'ሀ', 'ኸ': 'ሀ', 'ሠ': 'ሰ', 'ዐ': 'አ', 'ፀ': 'ጸ'}
+geez_base_map = {}
+for grp in GEEZ_GROUPS:
+    base = homo_base.get(grp[0], grp[0])
+    for ch in grp:
+        geez_base_map[ch] = base
+
+dart_lines.append("  static const Map<String, String> _geezBaseMap = {")
+for k, v in sorted(geez_base_map.items()):
+    dart_lines.append(f"    '{k}': '{v}',")
+dart_lines.append("  };\n")
+
+# Multi-lingual canonical sentences for acoustic CTC repair and fast UI reconstruction
+canonical_items = []
+seen_sigs = set()
+def add_canonical(d):
+    amh = d.get('amh', '').strip()
+    orm = d.get('orm', '').strip()
+    tir = d.get('tir', '').strip()
+    som = d.get('som', '').strip()
+    eng = d.get('eng', '').strip()
+    sig = (amh, orm, tir, som, eng)
+    if sig in seen_sigs or not any(sig):
+        return
+    seen_sigs.add(sig)
+    canonical_items.append({'amh': amh, 'orm': orm, 'tir': tir, 'som': som, 'eng': eng})
+
+for d in RURAL_CLINIC_DIALOGUE:
+    add_canonical(d)
+for d in AXUM_TOURIST_DIALOGUE:
+    add_canonical(d)
+for d in CLINIC_CORPUS:
+    add_canonical(d)
+for d in ROAD_CORPUS:
+    add_canonical(d)
+for d in CAFE_CORPUS:
+    add_canonical(d)
+for d in MARKET_CORPUS:
+    add_canonical(d)
+for d in DEEP_ETHIOPIAN_CORPUS:
+    add_canonical(d)
+for d in custom_phrases:
+    add_canonical(d)
+    for v in d.get('amh_variants', []):
+        add_canonical({'amh': v, 'orm': d['orm'], 'tir': d['tir'], 'som': d['som'], 'eng': d['eng']})
+    for v in d.get('orm_variants', []):
+        add_canonical({'amh': d['amh'], 'orm': v, 'tir': d['tir'], 'som': d['som'], 'eng': d['eng']})
+    for v in d.get('tir_variants', []):
+        add_canonical({'amh': d['amh'], 'orm': d['orm'], 'tir': v, 'som': d['som'], 'eng': d['eng']})
+    for v in d.get('som_variants', []):
+        add_canonical({'amh': d['amh'], 'orm': d['orm'], 'tir': d['tir'], 'som': v, 'eng': d['eng']})
+    for v in d.get('eng_variants', []):
+        add_canonical({'amh': d['amh'], 'orm': d['orm'], 'tir': d['tir'], 'som': d['som'], 'eng': v})
+
+dart_lines.append("  static const List<_CanonicalSentence> _canonicalSentences = [")
+for s in canonical_items:
+    amh_esc = s['amh'].replace('\\', '\\\\').replace("'", "\\'").replace('$', '\\$')
+    orm_esc = s['orm'].replace('\\', '\\\\').replace("'", "\\'").replace('$', '\\$')
+    tir_esc = s['tir'].replace('\\', '\\\\').replace("'", "\\'").replace('$', '\\$')
+    som_esc = s['som'].replace('\\', '\\\\').replace("'", "\\'").replace('$', '\\$')
+    eng_esc = s['eng'].replace('\\', '\\\\').replace("'", "\\'").replace('$', '\\$')
+    dart_lines.append("    _CanonicalSentence(")
+    dart_lines.append(f"      amh: '{amh_esc}',")
+    dart_lines.append(f"      orm: '{orm_esc}',")
+    dart_lines.append(f"      tir: '{tir_esc}',")
+    dart_lines.append(f"      som: '{som_esc}',")
+    dart_lines.append(f"      eng: '{eng_esc}',")
+    dart_lines.append("    ),")
+dart_lines.append("  ];\n")
+
 dart_lines.append(dart_middle)
 
 for pair, entries in tm_data.items():
