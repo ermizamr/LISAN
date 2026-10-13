@@ -13,6 +13,7 @@ import 'offline_nllb_translator.dart';
 import 'offline_ort_config.dart';
 import 'offline_stt_service.dart';
 import 'offline_translation_memory.dart';
+import 'offline_vits_tts.dart';
 import 'recording_service.dart';
 import 'translator_api.dart';
 
@@ -310,10 +311,11 @@ class _ConversationPageState extends State<ConversationPage>
 
   Future<void> _initTokenizerInBackground() async {
     try {
-      debugPrint('[Offline] Background pre-warming NMT tokenizer...');
+      debugPrint('[Offline] Background pre-warming NMT and VITS tokenizers...');
       await _offlineNmt.initializeTokenizer();
+      await OfflineVitsTts().initialize();
       if (mounted) setState(() => _offlineReady = true);
-      debugPrint('[Offline] NMT tokenizer ready ✓');
+      debugPrint('[Offline] NMT and VITS tokenizers ready ✓');
 
       // STT session is initialized lazily only if offline fallback is ever invoked.
       // Keeping it unloaded prevents native RAM spikes and protects against Android LMK kills.
@@ -405,6 +407,18 @@ class _ConversationPageState extends State<ConversationPage>
         final spokeAm = await NativeTts.speak('ሆስፒታሉ የት ነው?', 'amh');
         swNativeAm.stop();
         debugPrint('[GATE4_BENCHMARK] NATIVE TTS AMHARIC: ${swNativeAm.elapsedMilliseconds} ms (spoke=$spokeAm)');
+
+        // Test 4: On-Device Generative VITS Synthesis (Amharic)
+        final swVitsAmh = Stopwatch()..start();
+        final amhWav = await OfflineVitsTts().synthesize('ሰላም እንኳን ደህና መጣህ', 'amh');
+        swVitsAmh.stop();
+        debugPrint('[GATE4_BENCHMARK] ON-DEVICE VITS AMHARIC: ${swVitsAmh.elapsedMilliseconds} ms (wav=${amhWav?.path})');
+
+        // Test 5: On-Device Generative VITS Synthesis (Afaan Oromoo)
+        final swVitsOrm = Stopwatch()..start();
+        final ormWav = await OfflineVitsTts().synthesize('Akkam jirtu? Nagaadha?', 'orm');
+        swVitsOrm.stop();
+        debugPrint('[GATE4_BENCHMARK] ON-DEVICE VITS OROMO: ${swVitsOrm.elapsedMilliseconds} ms (wav=${ormWav?.path})');
 
         OfflineOrtConfig.trimNativeMemory();
         debugPrint('[GATE4_BENCHMARK] === BENCHMARK COMPLETED SUCCESSFULLY ===');
@@ -1613,7 +1627,18 @@ class _ConversationPageState extends State<ConversationPage>
         }
       }
 
-      debugPrint('[TTS] Cache miss. Vocalizing on-device via NativeTts for "$text" ($langKey)');
+      // Priority 1: On-Device Generative MMS-TTS VITS Engine
+      debugPrint('[TTS] Cache miss. Synthesizing generative speech on-device via OfflineVitsTts for "$text" ($langKey)...');
+      final generatedWav = await OfflineVitsTts().synthesize(text, langKey);
+      if (generatedWav != null && await generatedWav.exists()) {
+        debugPrint('[TTS] Playing synthesized MMS-TTS ONNX audio: ${generatedWav.path}');
+        await _audioPlayer.stop();
+        await _audioPlayer.play(DeviceFileSource(generatedWav.path));
+        return;
+      }
+
+      // Priority 2: Fall back to native platform TTS if VITS model is unavailable
+      debugPrint('[TTS] VITS synthesis unavailable/failed. Trying NativeTts for "$text" ($langKey)');
       final spoke = await NativeTts.speak(text, langKey);
       if (!spoke) {
         debugPrint('[TTS] NativeTts could not vocalize $langKey offline.');
@@ -1623,7 +1648,7 @@ class _ConversationPageState extends State<ConversationPage>
           final fallbackPath = fallbackList.first;
           final fbFile = File(fallbackPath);
           if (fbFile.existsSync()) {
-            debugPrint('[TTS] Vocalizing with local language audio voice: $fallbackPath');
+            debugPrint('[TTS] Fallback playback with local language audio voice: $fallbackPath');
             await _audioPlayer.stop();
             await _audioPlayer.play(DeviceFileSource(fallbackPath));
             return;
