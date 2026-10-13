@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -54,7 +53,14 @@ class OfflineNllbTranslator {
     String asset,
     String filename,
   ) async {
-    // 1. Check external sdcard directory
+    // 1. Check app support directory (fast ext4 internal flash storage)
+    final file = File('${dir.path}/$filename');
+    if (await file.exists() && await file.length() > 50000000) {
+      debugPrint('[Offline NMT] Using fast internal flash model: ${file.path} (${await file.length()} bytes)');
+      return file;
+    }
+
+    // 2. Check external sdcard candidates, copy to internal storage for high-speed I/O
     final externalCandidates = [
       File('/sdcard/lisan_models/nllb/$filename'),
       File('/sdcard/lisan_models/nllb/${filename.replaceAll('nllb_', '').replaceAll('.onnx', '_model_quantized.onnx')}'),
@@ -62,15 +68,11 @@ class OfflineNllbTranslator {
     ];
     for (final ext in externalCandidates) {
       if (await ext.exists()) {
-        debugPrint('[Offline NMT] Using model from ${ext.path}');
-        return ext;
+        debugPrint('[Offline NMT] Migrating model from sdcard (${ext.path}) to internal storage (${file.path})...');
+        await ext.copy(file.path);
+        debugPrint('[Offline NMT] Migration complete: ${file.path} (${await file.length()} bytes) ✓');
+        return file;
       }
-    }
-
-    // 2. Check app support directory
-    final file = File('${dir.path}/$filename');
-    if (await file.exists()) {
-      return file;
     }
 
     // 3. Fallback: try loading from assets
@@ -80,21 +82,7 @@ class OfflineNllbTranslator {
       return file;
     } catch (e) {
       debugPrint('[Offline NMT] Asset note for $filename: $e');
-      throw StateError('Model $filename not found on /sdcard or assets');
-    }
-  }
-
-  OrtSession? _decoderSession;
-  OrtSessionOptions? _decOptions;
-
-  Future<void> _ensureDecoderSession(File decoderFile) async {
-    if (_decoderSession == null) {
-      debugPrint('[Offline NMT] [Governor] Pre-warming persistent decoder session (intra=4)...');
-      _decOptions = OfflineOrtConfig.createOptions(
-        intraOpThreads: 4,
-        interOpThreads: 1,
-      );
-      _decoderSession = OrtSession.fromFile(decoderFile, _decOptions!);
+      throw StateError('Model $filename not found on internal storage, /sdcard, or assets');
     }
   }
 
@@ -131,8 +119,6 @@ class OfflineNllbTranslator {
     final encoderFile = await _ensureModel(dir, _encoderAsset, 'nllb_encoder.onnx');
     final decoderFile = await _ensureModel(dir, _decoderAsset, 'nllb_decoder.onnx');
 
-    await _ensureDecoderSession(decoderFile);
-
     final sourceToken =
         kNllbLangTokens[sourceLang] ??
         (throw ArgumentError('Unknown source lang: $sourceLang'));
@@ -150,17 +136,18 @@ class OfflineNllbTranslator {
     final inputIds = await _tokenizer.encode(inputToEncode, sourceToken);
     final seqLen = inputIds.length;
 
-    // 2. Sequential Step 1: Transient Encoder with immediate memory reclamation
+    // 2. Sequential Step 1: Run Encoder Session (with 4 threads on big cores)
     final inputIdsTensor = _int64Tensor(inputIds, [1, seqLen]);
     final attentionMask = _int64Tensor(List.filled(seqLen, 1), [1, seqLen]);
 
-    dynamic rawEncoderHiddenStates;
+    Float32List? encoderHiddenFloats;
     final encOptions = OfflineOrtConfig.createOptions(
       intraOpThreads: 4,
       interOpThreads: 1,
     );
     OrtSession? encoderSession;
     try {
+      debugPrint('[Offline NMT] [Governor] Allocating encoder session (intra=4)...');
       encoderSession = OrtSession.fromFile(encoderFile, encOptions);
       final encRunOptions = OrtRunOptions();
       try {
@@ -171,7 +158,12 @@ class OfflineNllbTranslator {
             'attention_mask': attentionMask,
           },
         );
-        rawEncoderHiddenStates = encoderOutputs.first?.value;
+        if (encoderOutputs.isNotEmpty && encoderOutputs.first != null) {
+          encoderHiddenFloats = OfflineOrtConfig.copyFloat32Data(
+            encoderOutputs.first!,
+            1 * seqLen * 1024,
+          );
+        }
         for (final out in encoderOutputs) {
           out?.release();
         }
@@ -184,62 +176,80 @@ class OfflineNllbTranslator {
       encOptions.release();
       inputIdsTensor.release();
       OfflineOrtConfig.trimNativeMemory();
+      debugPrint('[Offline NMT] [Governor] Encoder freed & native heap trimmed ✓');
     }
 
-    if (rawEncoderHiddenStates == null) {
+    if (encoderHiddenFloats == null) {
       attentionMask.release();
       throw StateError('Encoder produced null hidden states');
     }
 
-    // 3. Prepare Target Framing & Decoder Input
+    // 3. Sequential Step 2: Prepare Target Framing & Decoder Input
     final targetLangId = _tokenizer.tokenToId(targetToken) ?? _bosTokenId;
     final currIds = <int>[_eosTokenId, targetLangId];
 
-    final flattenedHidden = _flattenFloats(rawEncoderHiddenStates);
-    final hiddenTensor = _float32Tensor(flattenedHidden, [1, seqLen, 1024]);
+    final hiddenTensor = OrtValueTensor.createTensorWithDataList(
+      [encoderHiddenFloats],
+      [1, seqLen, 1024],
+    );
 
-    // 4. Run Autoregressive Decoder Loop
-    final decRunOptions = OrtRunOptions();
+    // 4. Sequential Step 3: Run Decoder Session (with 4 threads on big cores)
+    final decOptions = OfflineOrtConfig.createOptions(
+      intraOpThreads: 4,
+      interOpThreads: 1,
+    );
+    OrtSession? decoderSession;
     try {
-      for (var step = 0; step < _maxNewTokens; step++) {
-        final decoderInputIds = _int64Tensor(currIds, [1, currIds.length]);
+      debugPrint('[Offline NMT] [Governor] Allocating decoder session (intra=4)...');
+      decoderSession = OrtSession.fromFile(decoderFile, decOptions);
+      final decRunOptions = OrtRunOptions();
+      try {
+        for (var step = 0; step < _maxNewTokens; step++) {
+          final decoderInputIds = _int64Tensor(currIds, [1, currIds.length]);
 
-        final stepOutputs = _decoderSession!.run(
-          decRunOptions,
-          {
-            'input_ids': decoderInputIds,
-            'encoder_attention_mask': attentionMask,
-            'encoder_hidden_states': hiddenTensor,
-          },
-        );
-        decoderInputIds.release();
+          final stepOutputs = decoderSession.run(
+            decRunOptions,
+            {
+              'input_ids': decoderInputIds,
+              'encoder_attention_mask': attentionMask,
+              'encoder_hidden_states': hiddenTensor,
+            },
+          );
+          decoderInputIds.release();
 
-        if (stepOutputs.isEmpty) break;
+          if (stepOutputs.isEmpty) break;
 
-        final logitsTensor = stepOutputs.first;
-        for (var i = 1; i < stepOutputs.length; i++) {
-          stepOutputs[i]?.release();
+          final logitsTensor = stepOutputs.first;
+          for (var i = 1; i < stepOutputs.length; i++) {
+            stepOutputs[i]?.release();
+          }
+
+          if (logitsTensor == null) break;
+
+          final nextTokenId = OfflineOrtConfig.fastArgmax(
+            logitsTensor,
+            currIds.length - 1,
+            generatedIds: currIds,
+          );
+          logitsTensor.release();
+
+          currIds.add(nextTokenId);
+
+          if (nextTokenId == _eosTokenId || nextTokenId == _padTokenId) {
+            break;
+          }
         }
-
-        final logits = logitsTensor?.value;
-        logitsTensor?.release();
-
-        final nextTokenId = _argmax(
-          logits,
-          currIds.length - 1,
-          generatedIds: currIds,
-        );
-        currIds.add(nextTokenId);
-
-        if (nextTokenId == _eosTokenId || nextTokenId == _padTokenId) {
-          break;
-        }
+      } finally {
+        decRunOptions.release();
       }
     } finally {
-      decRunOptions.release();
       hiddenTensor.release();
+      decoderSession?.release();
+      decoderSession = null;
+      decOptions.release();
       attentionMask.release();
       OfflineOrtConfig.trimNativeMemory();
+      debugPrint('[Offline NMT] [Governor] Decoder freed & native heap trimmed ✓');
     }
 
     // 5. Decode generated tokens (skip initial prompt [2, targetLangId])
@@ -252,68 +262,6 @@ class OfflineNllbTranslator {
     );
   }
 
-  /// Argmax over last dimension with standard HuggingFace repetition penalty
-  /// to eliminate degenerative repetition loops.
-  int _argmax(
-    dynamic logits,
-    int stepIndex, {
-    List<int>? generatedIds,
-    double repetitionPenalty = 1.3,
-  }) {
-    List<dynamic> frame;
-    if (logits is List && logits.isNotEmpty && logits[0] is List) {
-      final batch = logits[0] as List;
-      final idx = math.min(stepIndex, batch.length - 1);
-      frame = batch[idx] is List ? batch[idx] as List<dynamic> : batch;
-    } else if (logits is List) {
-      frame = logits;
-    } else {
-      return _eosTokenId;
-    }
-
-    // Set of tokens already generated (skip prompt token)
-    final prevTokens = generatedIds != null ? generatedIds.toSet() : const <int>{};
-
-    var best = 0;
-    var bestVal = -double.maxFinite;
-    final len = frame.length;
-    for (var i = 0; i < len; i++) {
-      final num rawVal = frame[i] as num;
-      var v = rawVal.toDouble();
-
-      // Standard Hugging Face RepetitionPenaltyLogitsProcessor formula:
-      // If token was already generated, divide positive logits by penalty, multiply negative logits
-      if (prevTokens.contains(i)) {
-        v = v > 0 ? v / repetitionPenalty : v * repetitionPenalty;
-      }
-
-      if (v > bestVal) {
-        bestVal = v;
-        best = i;
-      }
-    }
-    return best;
-  }
-
-  static List<double> _flattenFloats(dynamic value) {
-    final result = <double>[];
-    void recurse(dynamic v) {
-      if (v is List) {
-        for (final item in v) {
-          recurse(item);
-        }
-      } else if (v is num) {
-        result.add(v.toDouble());
-      }
-    }
-    recurse(value);
-    return result;
-  }
-
-  OrtValueTensor _float32Tensor(List<double> data, List<int> shape) {
-    final typed = Float32List.fromList(data);
-    return OrtValueTensor.createTensorWithDataList([typed], shape);
-  }
 
   OrtValueTensor _int64Tensor(List<int> data, List<int> shape) {
     final typed = Int64List.fromList(data);
@@ -321,10 +269,6 @@ class OfflineNllbTranslator {
   }
 
   void dispose() {
-    _decoderSession?.release();
-    _decoderSession = null;
-    _decOptions?.release();
-    _decOptions = null;
     OfflineOrtConfig.trimNativeMemory();
   }
 
