@@ -51,6 +51,45 @@ class OfflineTranslationMemory {
     var s = text;
     s = s.replaceAll('ኣ', 'አ').replaceAll('ዐ', 'አ').replaceAll('ዓ', 'አ');
 
+    // 1. Acoustic CTC multi-word and pause repairs (Unicode Ge'ez boundaries)
+    s = s.replaceAll(RegExp(r'ያም(?:[ወዎ]?)?\s+ወ?ታል'), 'ያመዎታል');
+    s = s.replaceAll(RegExp(r'ያም\s*ታል'), 'ያመዎታል');
+    s = s.replaceAll(RegExp(r'ያም(?:[ወዎ]?)?\s+ሃል'), 'ያምሃል');
+    s = s.replaceAll(RegExp(r'ያም(?:[ወዎ]?)?\s+ሻል'), 'ያምሻል');
+    s = s.replaceAll(RegExp(r'ያም(?:[ወዎ]?)?\s+ኛል'), 'ያመኛል');
+    s = s.replaceAll(RegExp(r'ያም(?:[ወዎ]?)?\s+ኛ'), 'ያመኛል');
+    s = s.replaceAll(RegExp(r'ያም\s+ሆ'), 'ያመዎታል');
+    s = s.replaceAll(RegExp(r'የታ\s+አካባቢ'), 'የት አካባቢ');
+    s = s.replaceAll(RegExp(r'የታ\s+ጋር'), 'የት ጋር');
+    s = s.replaceAll(RegExp(r'የታ\s+ነው'), 'የት ነው');
+    s = s.replaceAll(RegExp(r'የታ(?=\s|[!?.,:;፣።]|$)'), 'የት');
+    s = s.replaceAll(RegExp(r'መች\s+ነ[ወዉ]'), 'መቼ ነው');
+    s = s.replaceAll(RegExp(r'መቼ\s+ነ[ወዉ]'), 'መቼ ነው');
+    s = s.replaceAll(RegExp(r'የጀመረ[ወዉ]'), 'የጀመረው');
+    s = s.replaceAll(RegExp(r'እንዴት\s+ነ[ወዉ]'), 'እንዴት ነው');
+    s = s.replaceAll(RegExp(r'እንዴት\s+ነክ'), 'እንዴት ነህ');
+    s = s.replaceAll(RegExp(r'ደህና\s+ነክ'), 'ደህና ነህ');
+    s = s.replaceAll(RegExp(r'ምን\s+አካባቢ'), 'የት አካባቢ');
+    s = s.replaceAll(RegExp(r'ሆዴን\s+ያም(?:[ወዎ]?)?(?:ኛ)?'), 'ሆዴን ያመኛል');
+    s = s.replaceAll(RegExp(r'ራሴን\s+ያም(?:[ወዎ]?)?(?:ኛ)?'), 'ራሴን ያመኛል');
+    s = s.replaceAll(RegExp(r'ደረቴን\s+ያም(?:[ወዎ]?)?(?:ኛ)?'), 'ደረቴን ያመኛል');
+    s = s.replaceAll(RegExp(r'እግሬን\s+ያም(?:[ወዎ]?)?(?:ኛ)?'), 'እግሬን ያመኛል');
+    s = s.replaceAll(RegExp(r'ትኩሳ\s+አለብኝ'), 'ትኩሳት አለብኝ');
+    s = s.replaceAll(RegExp(r'መድሃኒ\s+አለ'), 'መድሃኒት አለ');
+    s = s.replaceAll(RegExp(r'አመሰግናለ[ወዉ]'), 'አመሰግናለሁ');
+    s = s.replaceAll(RegExp(r'እፈልጋለ[ወዉ]'), 'እፈልጋለሁ');
+    s = s.replaceAll(RegExp(r'አላውቅ[ወዉ]ም'), 'አላውቅም');
+    s = s.replaceAll(RegExp(r'አልችል[ወዉ]ም'), 'አልችልም');
+    s = s.replaceAll(RegExp(r'መትታቃለህ'), 'መጥተህ ታውቃለህ');
+    s = s.replaceAll(RegExp(r'መትታቃለሽ'), 'መጥተሽ ታውቂያለሽ');
+    s = s.replaceAll(RegExp(r'መተልታቅ'), 'መጥተህ ልታውቅ');
+    s = s.replaceAll(RegExp(r'መተልጣቅት'), 'መጥተህ ልታውቅ');
+    s = s.replaceAll(RegExp(r'ምጥቻቃ\s+አለው'), 'መጥቼ አውቃለሁ');
+    s = s.replaceAll(RegExp(r'መታ\s+ምታ\s*ቀይመስለኝሞ'), 'መጥተህ የምታውቅ አይመስለኝም');
+    s = s.replaceAll(RegExp(r'መተታቃለ'), 'መጥተህ ታውቃለህ');
+    s = s.replaceAll(RegExp(r'ገጣሚ'), 'አጋጣሚ');
+    s = s.replaceAll(RegExp(r'[ሀሃ]{2,}'), ''); // laughter removal
+
     const spokenMap = {
       'ሰለም': 'ሰላም',
       'አሰላሙ': 'ሰላም',
@@ -78,6 +117,8 @@ class OfflineTranslationMemory {
       'ደና': 'ደህና',
       'ነክ': 'ነህ',
       'ነ': 'ነህ',
+      'ነወ': 'ነው',
+      'ነዉ': 'ነው',
       'አለክ': 'አለህ',
       'ባክህ': 'እባክህ', 'ባክሽ': 'እባክሽ', 'ባካችሁ': 'እባካችሁ',
       'አይዞክ': 'አይዞህ',
@@ -85,6 +126,9 @@ class OfflineTranslationMemory {
       'ምንክን': 'ምንህን', 'ምንክ': 'ምንህን', 'ምንህ': 'ምንህን',
       'የሚያም': 'የሚያምህ', 'የሚያመ': 'የሚያምህ',
       'ያመኛ': 'ያመኛል', 'ያመዎታ': 'ያመዎታል',
+      'ያምታል': 'ያመዎታል', 'ያሞታል': 'ያመዎታል', 'ያመታል': 'ያመዎታል',
+      'መች': 'መቼ',
+      'የጀመረወ': 'የጀመረው', 'የጀመረዉ': 'የጀመረው',
       'አዝልሃለ': 'አዝልሃለሁ', 'አዝልሃለው': 'አዝልሃለሁ',
       'አዝልሻለ': 'አዝልሻለሁ', 'አዝልሻለው': 'አዝልሻለሁ',
       'መድሃኒ': 'መድሃኒት',
@@ -121,6 +165,19 @@ class OfflineTranslationMemory {
   static String normalizeTigrinya(String text) {
     if (text.isEmpty) return '';
     var s = text.replaceAll('፡', ' ');
+
+    // 1. Acoustic CTC multi-word and pause repairs
+    s = s.replaceAll(RegExp(r'\bከመይ\s+ኣለ\s+ኻ\b'), 'ከመይ ኣለኻ');
+    s = s.replaceAll(RegExp(r'\bከመይ\s+ኣለ\s+ኺ\b'), 'ከመይ ኣለኺ');
+    s = s.replaceAll(RegExp(r'\bከመይ\s+ኣለ\s+ኹም\b'), 'ከመይ ኣለኹም');
+    s = s.replaceAll(RegExp(r'\bየሕም\s*መካ\b'), 'የሕምመካ');
+    s = s.replaceAll(RegExp(r'\bየሕም\s*መኪ\b'), 'የሕምመኪ');
+    s = s.replaceAll(RegExp(r'\bኣበይ\s+የሕም\w*\b'), 'ኣበይ የሕምመካ');
+    s = s.replaceAll(RegExp(r'\bመዓስ\s+ጀሚ\w*\b'), 'መዓስ ጀሚሩ');
+    s = s.replaceAll(RegExp(r'\bጥዕና\s+ኣበይ\b'), 'ጥዕና ይሃበለይ');
+    s = s.replaceAll(RegExp(r'\bጥዕና\s+ይሃበላ[ይይ]\b'), 'ጥዕና ይሃበለይ');
+    s = s.replaceAll(RegExp(r'\bደሓን\s+ዶ\b'), 'ድሓን ዲኻ');
+    s = s.replaceAll(RegExp(r'\bደሓን\s+ዲኻ\b'), 'ድሓን ዲኻ');
 
     const spokenMap = {
       'ደሓን': 'ድሓን',
@@ -190,6 +247,13 @@ class OfflineTranslationMemory {
   static String normalizeOromo(String text) {
     if (text.isEmpty) return '';
     var s = text.replaceAll(RegExp(r"[’‘ʼ`´]"), "'");
+    s = s.replaceAll(RegExp(r'\bak\s+kam\b', caseSensitive: false), 'akkam');
+    s = s.replaceAll(RegExp(r'\bak\s+kam\s+jir\s*ta\b', caseSensitive: false), 'akkam jirta');
+    s = s.replaceAll(RegExp(r'\bakkam\s+jir\s*ta\b', caseSensitive: false), 'akkam jirta');
+    s = s.replaceAll(RegExp(r'\bna\s+dhukub\w*\b', caseSensitive: false), 'na dhukkuba');
+    s = s.replaceAll(RegExp(r'\bsi\s+dhukub\w*\b', caseSensitive: false), 'si dhukkuba');
+    s = s.replaceAll(RegExp(r'\beessa\s+si\s+dhukkub\w*\b', caseSensitive: false), 'eessa si dhukkuba');
+    s = s.replaceAll(RegExp(r'\byoom\s+jalqab\w*\b', caseSensitive: false), 'yoom jalqabe');
     s = s.replaceAll(RegExp(r'\b(?:hoa|hoaa)\b', caseSensitive: false), "ho'a");
     s = s.replaceAll(RegExp(r'\b(?:tasgabaa|tasgabbaa|tasgabaaa)\b', caseSensitive: false), "tasgabbaa'aa");
     s = s.replaceAll(RegExp(r'\b(?:dhaahuu|dhahu)\b', caseSensitive: false), "dha'uu");
@@ -205,8 +269,6 @@ class OfflineTranslationMemory {
     s = s.replaceAll(RegExp(r'\bfayyaa\s+qabda\b', caseSensitive: false), 'fayyaa qabdaa');
     s = s.replaceAll(RegExp(r'\bati\s+ho\b', caseSensitive: false), 'ati hoo');
     s = s.replaceAll(RegExp(r'\bisin\s+ho\b', caseSensitive: false), 'isin hoo');
-    s = s.replaceAll(RegExp(r'\bsi\s+dhukuba\b', caseSensitive: false), 'si dhukkuba');
-    s = s.replaceAll(RegExp(r'\bna\s+dhukuba\b', caseSensitive: false), 'na dhukkuba');
     s = s.replaceAll(RegExp(r'\bqorich\b', caseSensitive: false), 'qoricha');
     s = s.replaceAll(RegExp(r'\bhospita\b', caseSensitive: false), 'hospitaala');
     return s.replaceAll(RegExp(r' {2,}'), ' ').trim();
@@ -216,6 +278,11 @@ class OfflineTranslationMemory {
   static String normalizeSomali(String text) {
     if (text.isEmpty) return '';
     var s = text.replaceAll(RegExp(r"[’‘ʼ`´]"), "'");
+    s = s.replaceAll(RegExp(r'\bhalkeeba[ay]?\s+ku\s+xanuun\w*\b', caseSensitive: false), 'halkeebay ku xanuunaysaa');
+    s = s.replaceAll(RegExp(r'\bku\s+xanun\w*\b', caseSensitive: false), 'ku xanuunaysaa');
+    s = s.replaceAll(RegExp(r'\bgoorma[ay]?\s+bilaab\w*\b', caseSensitive: false), 'goormay bilaabatay');
+    s = s.replaceAll(RegExp(r'\bmadax\s+xanun\w*\b', caseSensitive: false), 'madax xanuun');
+    s = s.replaceAll(RegExp(r'\bcalool\s+xanun\w*\b', caseSensitive: false), 'calool xanuun');
     s = s.replaceAll(RegExp(r'\bwaa\s+aan\b', caseSensitive: false), 'waan');
     s = s.replaceAll(RegExp(r'\bwaa\s+aad\b', caseSensitive: false), 'waad');
     s = s.replaceAll(RegExp(r'\bbaa\s+aan\b', caseSensitive: false), 'baan');
@@ -229,7 +296,6 @@ class OfflineTranslationMemory {
     s = s.replaceAll(RegExp(r'\bnabad\s+miya\b', caseSensitive: false), 'nabad miyaa');
     s = s.replaceAll(RegExp(r'\bma\s+fiican\s+tahy\b', caseSensitive: false), 'ma fiican tahay');
     s = s.replaceAll(RegExp(r'\bma\s+fiican\s+tihin\b', caseSensitive: false), 'ma fiican tihiin');
-    s = s.replaceAll(RegExp(r'\bku\s+xanunaysa\b', caseSensitive: false), 'ku xanuunaysaa');
     s = s.replaceAll(RegExp(r'\bqandho\s+aya\b', caseSensitive: false), 'qandho ayaa');
     s = s.replaceAll(RegExp(r'\bdoktor\b', caseSensitive: false), 'dhakhtar');
     s = s.replaceAll(RegExp(r'\bfarmashi\b', caseSensitive: false), 'farmashiye');
@@ -240,11 +306,15 @@ class OfflineTranslationMemory {
   static String normalizeEnglish(String text) {
     if (text.isEmpty) return '';
     var s = text.replaceAll(RegExp(r"[’‘ʼ`´]"), "'");
+    s = s.replaceAll(RegExp(r"\b(?:wear|were)\s+does\s+it\s+hurt\b", caseSensitive: false), 'where does it hurt');
+    s = s.replaceAll(RegExp(r"\bwen\s+did\s+it\s+start\b", caseSensitive: false), 'when did it start');
+    s = s.replaceAll(RegExp(r"\bhead\s+ache\b", caseSensitive: false), 'headache');
+    s = s.replaceAll(RegExp(r"\bstomach\s+ache\b", caseSensitive: false), 'stomach ache');
+    s = s.replaceAll(RegExp(r"\bhi\s+fever\b", caseSensitive: false), 'high fever');
+    s = s.replaceAll(RegExp(r"\bches\s+pain\b", caseSensitive: false), 'chest pain');
     s = s.replaceAll(RegExp(r"\bi[' ]?m\b", caseSensitive: false), 'I am');
     s = s.replaceAll(RegExp(r"\b(?:you're|youre|u\s+r)\b", caseSensitive: false), 'you are');
     s = s.replaceAll(RegExp(r"\bhow\s+(?:r|are)\s+u\b", caseSensitive: false), 'how are you');
-    s = s.replaceAll(RegExp(r"\b(?:wear|were)\s+does\s+it\s+hurt\b", caseSensitive: false), 'where does it hurt');
-    s = s.replaceAll(RegExp(r"\bhi\s+fever\b", caseSensitive: false), 'high fever');
     s = s.replaceAll(RegExp(r"\bwhat[']?s\b", caseSensitive: false), 'what is');
     s = s.replaceAll(RegExp(r"\bwhere[']?s\b", caseSensitive: false), 'where is');
     s = s.replaceAll(RegExp(r"\bdon[']?t\b", caseSensitive: false), 'do not');

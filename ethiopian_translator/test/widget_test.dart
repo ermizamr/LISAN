@@ -18,7 +18,7 @@ void main() {
     ));
 
     // 1. Ready state verification
-    expect(find.text('Lisan'), findsOneWidget);
+    expect(find.text('LISAN'), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
     expect(find.text('Type text'), findsOneWidget);
     expect(find.textContaining('Speak freely.'), findsOneWidget);

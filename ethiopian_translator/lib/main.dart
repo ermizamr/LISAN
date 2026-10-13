@@ -309,14 +309,13 @@ class _ConversationPageState extends State<ConversationPage>
 
   Future<void> _initTokenizerInBackground() async {
     try {
-      debugPrint('[Offline] Background pre-warming NMT and VITS tokenizers...');
+      debugPrint('[Offline] Background pre-warming STT, NMT, and VITS...');
+      await _offlineStt.initialize();
       await _offlineNmt.initializeTokenizer();
       await OfflineVitsTts().initialize();
       if (mounted) setState(() => _offlineReady = true);
-      debugPrint('[Offline] NMT and VITS tokenizers ready ✓');
+      debugPrint('[Offline] STT, NMT, and VITS ready ✓');
 
-      // STT session is initialized lazily only if offline fallback is ever invoked.
-      // Keeping it unloaded prevents native RAM spikes and protects against Android LMK kills.
       _checkAndRunOfflineAsrBenchmark();
       _checkAndRunOfflineNmtBenchmark();
       _checkAndRunOfflineTtsBenchmark();
@@ -335,9 +334,12 @@ class _ConversationPageState extends State<ConversationPage>
         } catch (_) {}
         debugPrint('[GATE2_BENCHMARK] === STARTING ON-DEVICE ASR BENCHMARK ===');
         final sw = Stopwatch()..start();
-        final text = await _offlineStt.transcribe('/sdcard/lisan_models/test_audio/test_amh.wav');
+        final res = await _offlineStt.transcribeDetailed('/sdcard/lisan_models/test_audio/test_amh.wav');
         sw.stop();
-        debugPrint('[GATE2_BENCHMARK] TRANSCRIBED TEXT: "$text"');
+        final cleaned = OfflineTranslationMemory.cleanSpokenTranscription(res.text, 'amh');
+        debugPrint('[GATE2_BENCHMARK] RAW TEXT: "${res.text}"');
+        debugPrint('[GATE2_BENCHMARK] CLEANED TEXT: "$cleaned"');
+        debugPrint('[GATE2_BENCHMARK] DETECTED LANG: ${res.detectedLanguage}');
         debugPrint('[GATE2_BENCHMARK] LATENCY: ${sw.elapsedMilliseconds} ms (${(sw.elapsedMilliseconds / 1000).toStringAsFixed(2)}s)');
         debugPrint('[GATE2_BENCHMARK] === BENCHMARK COMPLETED SUCCESSFULLY ===');
         OfflineOrtConfig.trimNativeMemory();
@@ -1249,7 +1251,7 @@ class _ConversationPageState extends State<ConversationPage>
             source: srcKey,
             target: tgtKey,
             speakerMode: 'direct',
-          ).timeout(const Duration(seconds: 4));
+          ).timeout(const Duration(seconds: 15));
 
           if (audioRes.translatedText.isNotEmpty) {
             debugPrint('[Backend STT] Succeeded: "${audioRes.sourceText}" -> "${audioRes.translatedText}"');
@@ -1289,10 +1291,13 @@ class _ConversationPageState extends State<ConversationPage>
 
       // Priority 2: Offline On-Device STT (transcribe audio to text with safety timeout)
       String transcribedText = '';
+      String? detectedLangToken;
       try {
-        transcribedText = await _offlineStt
-            .transcribe(audioPath)
+        final sttRes = await _offlineStt
+            .transcribeDetailed(audioPath)
             .timeout(const Duration(seconds: 15));
+        transcribedText = sttRes.text;
+        detectedLangToken = sttRes.detectedLanguage;
       } catch (sttError) {
         debugPrint('[Offline STT Error/Timeout] $sttError');
       }
@@ -1330,10 +1335,11 @@ class _ConversationPageState extends State<ConversationPage>
               : (target.backendKey == 'eng' ? 'amh' : 'eng');
         }
 
-        final detectedKey = OfflineTranslationMemory.detectLanguage(
-          transcribedText,
-          defaultLang: defaultSrcKey,
-        );
+        final detectedKey = detectedLangToken ??
+            OfflineTranslationMemory.detectLanguage(
+              transcribedText,
+              defaultLang: defaultSrcKey,
+            );
         debugPrint('[Offline LID] Recognized spoken language: $detectedKey for "$transcribedText"');
 
         String resolvedSrcKey = detectedKey;
@@ -1967,14 +1973,19 @@ class _ConversationPageState extends State<ConversationPage>
           ),
         ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // Wordmark Button
-          GestureDetector(
-            onTap: _reset,
-            behavior: HitTestBehavior.opaque,
-            child: Row(
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.center,
+        child: SizedBox(
+          width: 480,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Wordmark Button
+              GestureDetector(
+                onTap: _reset,
+                behavior: HitTestBehavior.opaque,
+                child: Row(
               children: [
                 Container(
                   width: 36,
@@ -2150,8 +2161,10 @@ class _ConversationPageState extends State<ConversationPage>
           ),
         ],
       ),
-    );
-  }
+    ),
+  ),
+);
+}
 
   // -------------------------------------------------------------------------
   // View Switcher
