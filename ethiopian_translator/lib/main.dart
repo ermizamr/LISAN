@@ -357,16 +357,31 @@ class _ConversationPageState extends State<ConversationPage>
           await flag.delete();
         } catch (_) {}
         debugPrint('[GATE3_BENCHMARK] === STARTING ON-DEVICE NMT BENCHMARK ===');
-        final sw = Stopwatch()..start();
-        final text = await _offlineNmt.translate(
+        
+        // Run 1: Cold start (first inference + pre-warming)
+        final swCold = Stopwatch()..start();
+        final textCold = await _offlineNmt.translate(
           'Where is the hospital?',
           sourceLang: 'eng',
           targetLang: 'amh',
           bypassTm: true,
         );
-        sw.stop();
-        debugPrint('[GATE3_BENCHMARK] TRANSLATED TEXT: "$text"');
-        debugPrint('[GATE3_BENCHMARK] LATENCY: ${sw.elapsedMilliseconds} ms (${(sw.elapsedMilliseconds / 1000).toStringAsFixed(2)}s)');
+        swCold.stop();
+        debugPrint('[GATE3_BENCHMARK] COLD TRANSLATED TEXT: "$textCold"');
+        debugPrint('[GATE3_BENCHMARK] COLD LATENCY: ${swCold.elapsedMilliseconds} ms (${(swCold.elapsedMilliseconds / 1000).toStringAsFixed(2)}s)');
+
+        // Run 2: Warm persistent session (pure inference)
+        final swWarm = Stopwatch()..start();
+        final textWarm = await _offlineNmt.translate(
+          'Where is the hospital?',
+          sourceLang: 'eng',
+          targetLang: 'amh',
+          bypassTm: true,
+        );
+        swWarm.stop();
+        debugPrint('[GATE3_BENCHMARK] WARM TRANSLATED TEXT: "$textWarm"');
+        debugPrint('[GATE3_BENCHMARK] WARM LATENCY: ${swWarm.elapsedMilliseconds} ms (${(swWarm.elapsedMilliseconds / 1000).toStringAsFixed(2)}s)');
+
         debugPrint('[GATE3_BENCHMARK] === BENCHMARK COMPLETED SUCCESSFULLY ===');
         OfflineOrtConfig.trimNativeMemory();
       }

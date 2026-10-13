@@ -84,6 +84,20 @@ class OfflineNllbTranslator {
     }
   }
 
+  OrtSession? _decoderSession;
+  OrtSessionOptions? _decOptions;
+
+  Future<void> _ensureDecoderSession(File decoderFile) async {
+    if (_decoderSession == null) {
+      debugPrint('[Offline NMT] [Governor] Pre-warming persistent decoder session (intra=4)...');
+      _decOptions = OfflineOrtConfig.createOptions(
+        intraOpThreads: 4,
+        interOpThreads: 1,
+      );
+      _decoderSession = OrtSession.fromFile(decoderFile, _decOptions!);
+    }
+  }
+
   /// Translate [text] from [sourceLang] to [targetLang].
   /// Lang codes are backend keys: 'amh', 'orm', 'tir', 'som', 'eng'.
   Future<String> translate(
@@ -117,6 +131,8 @@ class OfflineNllbTranslator {
     final encoderFile = await _ensureModel(dir, _encoderAsset, 'nllb_encoder.onnx');
     final decoderFile = await _ensureModel(dir, _decoderAsset, 'nllb_decoder.onnx');
 
+    await _ensureDecoderSession(decoderFile);
+
     final sourceToken =
         kNllbLangTokens[sourceLang] ??
         (throw ArgumentError('Unknown source lang: $sourceLang'));
@@ -134,18 +150,17 @@ class OfflineNllbTranslator {
     final inputIds = await _tokenizer.encode(inputToEncode, sourceToken);
     final seqLen = inputIds.length;
 
-    // 2. Sequential Step 1: Run Encoder Session Only
+    // 2. Sequential Step 1: Transient Encoder with immediate memory reclamation
     final inputIdsTensor = _int64Tensor(inputIds, [1, seqLen]);
     final attentionMask = _int64Tensor(List.filled(seqLen, 1), [1, seqLen]);
 
     dynamic rawEncoderHiddenStates;
     final encOptions = OfflineOrtConfig.createOptions(
-      intraOpThreads: 2,
+      intraOpThreads: 4,
       interOpThreads: 1,
     );
     OrtSession? encoderSession;
     try {
-      debugPrint('[Offline NMT] [Governor] Loading encoder session...');
       encoderSession = OrtSession.fromFile(encoderFile, encOptions);
       final encRunOptions = OrtRunOptions();
       try {
@@ -169,7 +184,6 @@ class OfflineNllbTranslator {
       encOptions.release();
       inputIdsTensor.release();
       OfflineOrtConfig.trimNativeMemory();
-      debugPrint('[Offline NMT] [Governor] Encoder freed & native heap trimmed ✓');
     }
 
     if (rawEncoderHiddenStates == null) {
@@ -177,68 +191,55 @@ class OfflineNllbTranslator {
       throw StateError('Encoder produced null hidden states');
     }
 
-    // 3. Sequential Step 2: Prepare Target Framing & Decoder Input
+    // 3. Prepare Target Framing & Decoder Input
     final targetLangId = _tokenizer.tokenToId(targetToken) ?? _bosTokenId;
     final currIds = <int>[_eosTokenId, targetLangId];
 
     final flattenedHidden = _flattenFloats(rawEncoderHiddenStates);
     final hiddenTensor = _float32Tensor(flattenedHidden, [1, seqLen, 1024]);
 
-    final decOptions = OfflineOrtConfig.createOptions(
-      intraOpThreads: 2,
-      interOpThreads: 1,
-    );
-    OrtSession? decoderSession;
+    // 4. Run Autoregressive Decoder Loop
+    final decRunOptions = OrtRunOptions();
     try {
-      debugPrint('[Offline NMT] [Governor] Loading decoder session...');
-      decoderSession = OrtSession.fromFile(decoderFile, decOptions);
-      final runOptions = OrtRunOptions();
-      try {
-        for (var step = 0; step < _maxNewTokens; step++) {
-          final decoderInputIds = _int64Tensor(currIds, [1, currIds.length]);
+      for (var step = 0; step < _maxNewTokens; step++) {
+        final decoderInputIds = _int64Tensor(currIds, [1, currIds.length]);
 
-          final stepOutputs = decoderSession.run(
-            runOptions,
-            {
-              'input_ids': decoderInputIds,
-              'encoder_attention_mask': attentionMask,
-              'encoder_hidden_states': hiddenTensor,
-            },
-          );
-          decoderInputIds.release();
+        final stepOutputs = _decoderSession!.run(
+          decRunOptions,
+          {
+            'input_ids': decoderInputIds,
+            'encoder_attention_mask': attentionMask,
+            'encoder_hidden_states': hiddenTensor,
+          },
+        );
+        decoderInputIds.release();
 
-          if (stepOutputs.isEmpty) break;
+        if (stepOutputs.isEmpty) break;
 
-          final logitsTensor = stepOutputs.first;
-          for (var i = 1; i < stepOutputs.length; i++) {
-            stepOutputs[i]?.release();
-          }
-
-          final logits = logitsTensor?.value;
-          logitsTensor?.release();
-
-          final nextTokenId = _argmax(
-            logits,
-            currIds.length - 1,
-            generatedIds: currIds,
-          );
-          currIds.add(nextTokenId);
-
-          if (nextTokenId == _eosTokenId || nextTokenId == _padTokenId) {
-            break;
-          }
+        final logitsTensor = stepOutputs.first;
+        for (var i = 1; i < stepOutputs.length; i++) {
+          stepOutputs[i]?.release();
         }
-      } finally {
-        runOptions.release();
+
+        final logits = logitsTensor?.value;
+        logitsTensor?.release();
+
+        final nextTokenId = _argmax(
+          logits,
+          currIds.length - 1,
+          generatedIds: currIds,
+        );
+        currIds.add(nextTokenId);
+
+        if (nextTokenId == _eosTokenId || nextTokenId == _padTokenId) {
+          break;
+        }
       }
     } finally {
+      decRunOptions.release();
       hiddenTensor.release();
-      decoderSession?.release();
-      decoderSession = null;
-      decOptions.release();
       attentionMask.release();
       OfflineOrtConfig.trimNativeMemory();
-      debugPrint('[Offline NMT] [Governor] Decoder freed & native heap trimmed ✓');
     }
 
     // 5. Decode generated tokens (skip initial prompt [2, targetLangId])
@@ -320,6 +321,10 @@ class OfflineNllbTranslator {
   }
 
   void dispose() {
+    _decoderSession?.release();
+    _decoderSession = null;
+    _decOptions?.release();
+    _decOptions = null;
     OfflineOrtConfig.trimNativeMemory();
   }
 
