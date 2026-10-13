@@ -281,7 +281,6 @@ class _ConversationPageState extends State<ConversationPage>
   }
 
   final Map<String, String> _ttsIndexByLangNorm = {};
-  final Map<String, List<String>> _ttsAvailablePerLang = {};
 
   Future<void> _loadTtsCacheIndex() async {
     try {
@@ -298,7 +297,6 @@ class _ConversationPageState extends State<ConversationPage>
               final norm = OfflineTranslationMemory.normalize(text);
               final path = '/sdcard/lisan_models/tts_cache/$fileName';
               _ttsIndexByLangNorm['${lang}_$norm'] = path;
-              _ttsAvailablePerLang.putIfAbsent(lang, () => []).add(path);
             }
           }
         });
@@ -364,7 +362,6 @@ class _ConversationPageState extends State<ConversationPage>
           'Where is the hospital?',
           sourceLang: 'eng',
           targetLang: 'amh',
-          bypassTm: true,
         );
         swCold.stop();
         debugPrint('[GATE3_BENCHMARK] COLD TRANSLATED TEXT: "$textCold"');
@@ -376,7 +373,6 @@ class _ConversationPageState extends State<ConversationPage>
           'Where is the hospital?',
           sourceLang: 'eng',
           targetLang: 'amh',
-          bypassTm: true,
         );
         swWarm.stop();
         debugPrint('[GATE3_BENCHMARK] WARM TRANSLATED TEXT: "$textWarm"');
@@ -468,14 +464,10 @@ class _ConversationPageState extends State<ConversationPage>
           asrSw.stop();
           OfflineOrtConfig.trimNativeMemory();
 
-          // 2. NMT Stage
+          // 2. NMT Stage (Direct On-Device Neural NLLB)
           final nmtSw = Stopwatch()..start();
           final cleaned = OfflineTranslationMemory.cleanSpokenTranscription(transcribed, 'amh');
-          final tm = OfflineTranslationMemory.lookupWithRepair(cleaned, sourceLang: 'amh', targetLang: 'eng');
-          String translated = tm?.translation ?? '';
-          if (translated.isEmpty) {
-            translated = await _offlineNmt.translate(cleaned, sourceLang: 'amh', targetLang: 'eng', bypassTm: true);
-          }
+          final translated = await _offlineNmt.translate(cleaned, sourceLang: 'amh', targetLang: 'eng');
           nmtSw.stop();
           OfflineOrtConfig.trimNativeMemory();
 
@@ -1363,58 +1355,45 @@ class _ConversationPageState extends State<ConversationPage>
       );
       debugPrint('[Offline STT] Cleaned: "$transcribedText" (${effectiveSource.code} -> ${effectiveTarget.code})');
 
-      // 2. Tier 1: Offline TM & Acoustic Repair (0ms latency, zero CPU freeze)
-      final tmMatch = OfflineTranslationMemory.lookupWithRepair(
-        transcribedText,
-        sourceLang: effectiveSource.backendKey,
-        targetLang: effectiveTarget.backendKey,
-      );
-
       String finalSource = transcribedText.trim();
       String translatedText = '';
 
-      if (tmMatch != null) {
-        debugPrint('[Offline TM Match] Repaired: "$transcribedText" -> "${tmMatch.repairedSource}" => "${tmMatch.translation}"');
-        finalSource = tmMatch.repairedSource;
-        translatedText = tmMatch.translation;
-      } else {
-        // Tier 2: Connected PC Backend Translation (FastAPI on PC)
-        bool backendSuccess = false;
-        if (_serverAvailable) {
-          try {
-            debugPrint('[Backend Translation] Trying server translation for "$transcribedText"...');
-            final res = await widget.api
-                .translateText(
-                  text: transcribedText,
-                  source: effectiveSource.backendKey,
-                  target: effectiveTarget.backendKey,
-                )
-                .timeout(const Duration(seconds: 4));
-            translatedText = res.translatedText;
-            backendSuccess = true;
-            debugPrint('[Backend Translation] Succeeded: "$translatedText"');
-          } catch (serverErr) {
-            debugPrint('[Backend Translation] Server unavailable ($serverErr)');
-            _serverAvailable = false;
-          }
+      // Tier 1: Connected PC Backend Translation (FastAPI on PC)
+      bool backendSuccess = false;
+      if (_serverAvailable) {
+        try {
+          debugPrint('[Backend Translation] Trying server translation for "$transcribedText"...');
+          final res = await widget.api
+              .translateText(
+                text: transcribedText,
+                source: effectiveSource.backendKey,
+                target: effectiveTarget.backendKey,
+              )
+              .timeout(const Duration(seconds: 4));
+          translatedText = res.translatedText;
+          backendSuccess = true;
+          debugPrint('[Backend Translation] Succeeded: "$translatedText"');
+        } catch (serverErr) {
+          debugPrint('[Backend Translation] Server unavailable ($serverErr)');
+          _serverAvailable = false;
         }
+      }
 
-        // Tier 3: On-Device NLLB Neural Translation (pruned INT8 <= 350MB PSS)
-        if (!backendSuccess) {
-          debugPrint('[Offline NMT] Running on-device NLLB neural translation...');
-          try {
-            translatedText = await _offlineNmt.translate(
-              finalSource,
-              sourceLang: effectiveSource.backendKey,
-              targetLang: effectiveTarget.backendKey,
-            );
-            debugPrint('[Offline NMT] Succeeded: "$translatedText"');
-          } catch (nmtErr) {
-            debugPrint('[Offline NMT] Translation error: $nmtErr');
-            translatedText = 'ከመስመር ውጭ አልተገኘም (Translation error)';
-          } finally {
-            OfflineOrtConfig.trimNativeMemory();
-          }
+      // Tier 2: On-Device NLLB Neural Translation (pruned INT8 <= 350MB PSS)
+      if (!backendSuccess) {
+        debugPrint('[Offline NMT] Running on-device NLLB neural translation...');
+        try {
+          translatedText = await _offlineNmt.translate(
+            finalSource,
+            sourceLang: effectiveSource.backendKey,
+            targetLang: effectiveTarget.backendKey,
+          );
+          debugPrint('[Offline NMT] Succeeded: "$translatedText"');
+        } catch (nmtErr) {
+          debugPrint('[Offline NMT] Translation error: $nmtErr');
+          translatedText = 'ከመስመር ውጭ አልተገኘም (Translation error)';
+        } finally {
+          OfflineOrtConfig.trimNativeMemory();
         }
       }
 
@@ -1504,37 +1483,26 @@ class _ConversationPageState extends State<ConversationPage>
           backendSuccess = true;
           debugPrint('[Backend Translation] Succeeded: "$translatedText"');
         } catch (serverErr) {
-          debugPrint('[Backend Translation] Server unavailable ($serverErr), checking offline TM...');
+          debugPrint('[Backend Translation] Server unavailable ($serverErr), falling back to offline NMT...');
           _serverAvailable = false;
         }
       }
 
-      // Priority 2: Offline Translation Memory & Acoustic Repair
+      // Priority 2: On-Device NLLB Neural Translation (pruned INT8 <= 350MB PSS)
       if (!backendSuccess) {
-        final tmMatch = OfflineTranslationMemory.lookupWithRepair(
-          text.trim(),
-          sourceLang: effectiveSrc.backendKey,
-          targetLang: effectiveTgt.backendKey,
-        );
-
-        if (tmMatch != null) {
-          finalSource = tmMatch.repairedSource;
-          translatedText = tmMatch.translation;
-        } else {
-          debugPrint('[Offline NMT] Running on-device NLLB neural translation for manual text...');
-          try {
-            translatedText = await _offlineNmt.translate(
-              text.trim(),
-              sourceLang: effectiveSrc.backendKey,
-              targetLang: effectiveTgt.backendKey,
-            );
-            debugPrint('[Offline NMT] Succeeded: "$translatedText"');
-          } catch (nmtErr) {
-            debugPrint('[Offline NMT] Translation error: $nmtErr');
-            translatedText = 'ከመስመር ውጭ አልተገኘም (Translation error)';
-          } finally {
-            OfflineOrtConfig.trimNativeMemory();
-          }
+        debugPrint('[Offline NMT] Running on-device NLLB neural translation for manual text...');
+        try {
+          translatedText = await _offlineNmt.translate(
+            text.trim(),
+            sourceLang: effectiveSrc.backendKey,
+            targetLang: effectiveTgt.backendKey,
+          );
+          debugPrint('[Offline NMT] Succeeded: "$translatedText"');
+        } catch (nmtErr) {
+          debugPrint('[Offline NMT] Translation error: $nmtErr');
+          translatedText = 'ከመስመር ውጭ አልተገኘም (Translation error)';
+        } finally {
+          OfflineOrtConfig.trimNativeMemory();
         }
       }
 
@@ -1595,26 +1563,6 @@ class _ConversationPageState extends State<ConversationPage>
         }
       }
 
-      // Fallback 2: fuzzy similarity in neural index for target language
-      if (matchedPath == null && norm.length >= 3) {
-        String? bestCandidate;
-        double bestScore = 0.0;
-        for (final entry in _ttsIndexByLangNorm.entries) {
-          if (entry.key.startsWith('${langKey}_')) {
-            final candNorm = entry.key.substring(langKey.length + 1);
-            final score = OfflineTranslationMemory.levenshteinSimilarity(norm, candNorm);
-            if (score > bestScore) {
-              bestScore = score;
-              bestCandidate = entry.value;
-            }
-          }
-        }
-        if (bestCandidate != null && bestScore >= 0.68) {
-          matchedPath = bestCandidate;
-          debugPrint('[TTS] Fuzzy index match for "$text" -> $matchedPath (score: $bestScore)');
-        }
-      }
-
       if (matchedPath != null) {
         final f = File(matchedPath);
         if (f.existsSync() && f.lengthSync() > 500) {
@@ -1657,18 +1605,6 @@ class _ConversationPageState extends State<ConversationPage>
       final spoke = await NativeTts.speak(text, langKey);
       if (!spoke) {
         debugPrint('[TTS] NativeTts could not vocalize $langKey offline.');
-        // Graceful audio playback for local languages if system TTS is unsupported
-        final fallbackList = _ttsAvailablePerLang[langKey];
-        if (fallbackList != null && fallbackList.isNotEmpty) {
-          final fallbackPath = fallbackList.first;
-          final fbFile = File(fallbackPath);
-          if (fbFile.existsSync()) {
-            debugPrint('[TTS] Fallback playback with local language audio voice: $fallbackPath');
-            await _audioPlayer.stop();
-            await _audioPlayer.play(DeviceFileSource(fallbackPath));
-            return;
-          }
-        }
       }
 
       // Reset playing state after estimated reading time

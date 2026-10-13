@@ -92,7 +92,6 @@ class OfflineNllbTranslator {
     String text, {
     required String sourceLang,
     required String targetLang,
-    bool bypassTm = false,
   }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return '';
@@ -100,19 +99,6 @@ class OfflineNllbTranslator {
     // If source and target languages are identical, return unchanged text
     if (sourceLang == targetLang) {
       return trimmed;
-    }
-
-    // High-speed Translation Memory & Curated Medical/Conversational Glossary
-    if (!bypassTm) {
-      final tmHit = OfflineTranslationMemory.lookupWithRepair(
-        trimmed,
-        sourceLang: sourceLang,
-        targetLang: targetLang,
-      );
-      if (tmHit != null) {
-        debugPrint('[Offline TM Hit] "$trimmed" -> "${tmHit.translation}" (Repaired: "${tmHit.repairedSource}")');
-        return tmHit.translation;
-      }
     }
 
     final dir = await getApplicationSupportDirectory();
