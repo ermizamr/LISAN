@@ -64,3 +64,8 @@ Thumbs.db
 # Separate standalone repo
 landing/
 output_tts/
+
+# Secrets and local user state
+.env
+telegram_bot/.env
+telegram_bot/user_stats.json

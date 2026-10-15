@@ -7,6 +7,16 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_TUPLES_PATH = BASE_DIR / "landing" / "data" / "community_tuples.json"
 LOCAL_USER_STATS_PATH = Path(__file__).resolve().parent / "user_stats.json"
+ENV_PATH = Path(__file__).resolve().parent / ".env"
+
+# Load .env file manually if exists
+if ENV_PATH.exists():
+    with open(ENV_PATH, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ[k.strip()] = v.strip().strip('"').strip("'")
 
 # Telegram Bot Token (set via environment variable or replace here)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
