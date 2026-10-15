@@ -599,23 +599,14 @@ def search_phrasebook(query: str) -> dict:
 
 
 # ==========================================
-# MAIN APP INITIALIZER
+# BOT APPLICATION FACTORY
 # ==========================================
 
-def main():
-    """Runs the Telegram bot."""
+def create_bot_application():
+    """Builds and configures the Telegram Application instance."""
     token = TELEGRAM_BOT_TOKEN
     if not token:
-        print("\n" + "=" * 70)
-        print("⚠️  TELEGRAM_BOT_TOKEN is not set!")
-        print("=" * 70)
-        print("1. Open Telegram and message @BotFather")
-        print("2. Type /newbot and follow instructions to get your Token")
-        print("3. Run the bot with:")
-        print("   $env:TELEGRAM_BOT_TOKEN='YOUR_BOT_TOKEN'; python telegram_bot/bot.py")
-        print("   OR add it to telegram_bot/.env")
-        print("=" * 70 + "\n")
-        return
+        raise ValueError("TELEGRAM_BOT_TOKEN is not set! Please check your environment variables.")
 
     # Preload dataset
     load_tuples()
@@ -631,7 +622,26 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    print("🚀 LISAN Telegram Bot is live and listening for messages...")
+    return app
+
+
+def main():
+    """Runs the Telegram bot in long-polling mode (for local / dedicated worker)."""
+    token = TELEGRAM_BOT_TOKEN
+    if not token:
+        print("\n" + "=" * 70)
+        print("⚠️  TELEGRAM_BOT_TOKEN is not set!")
+        print("=" * 70)
+        print("1. Open Telegram and message @BotFather")
+        print("2. Type /newbot and follow instructions to get your Token")
+        print("3. Run the bot with:")
+        print("   $env:TELEGRAM_BOT_TOKEN='YOUR_BOT_TOKEN'; python telegram_bot/bot.py")
+        print("   OR add it to telegram_bot/.env")
+        print("=" * 70 + "\n")
+        return
+
+    app = create_bot_application()
+    print("🚀 LISAN Telegram Bot is live and listening for messages (Long Polling)...")
     app.run_polling()
 
 

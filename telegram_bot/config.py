@@ -6,6 +6,13 @@ from pathlib import Path
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_TUPLES_PATH = BASE_DIR / "landing" / "data" / "community_tuples.json"
+if not DATA_TUPLES_PATH.exists():
+    LOCAL_FALLBACK = Path(__file__).resolve().parent / "community_tuples.json"
+    if LOCAL_FALLBACK.exists():
+        DATA_TUPLES_PATH = LOCAL_FALLBACK
+    elif (BASE_DIR / "community_tuples.json").exists():
+        DATA_TUPLES_PATH = BASE_DIR / "community_tuples.json"
+
 LOCAL_USER_STATS_PATH = Path(__file__).resolve().parent / "user_stats.json"
 ENV_PATH = Path(__file__).resolve().parent / ".env"
 
