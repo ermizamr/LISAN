@@ -84,15 +84,22 @@ def get_random_sentence(preferred_lang: str = None) -> dict:
         return {}
 
     t = random.choice(CACHED_TUPLES)
-    available_langs = ["amh", "orm", "tir", "som"]
-    lang = preferred_lang if preferred_lang in available_langs else random.choice(available_langs)
+    translations = t.get("translations", {})
+    available_langs = [l for l in ["amh", "orm", "tir", "som"] if l in translations]
+    if not available_langs:
+        available_langs = ["amh", "orm", "tir", "som"]
+
+    lang = preferred_lang if (preferred_lang in translations) else random.choice(available_langs)
+
+    english_text = translations.get("eng", t.get("english", ""))
+    target_text = translations.get(lang, t.get(lang, ""))
 
     return {
         "tuple_id": t.get("id"),
         "domain": t.get("domain", "general"),
-        "english": t.get("english", ""),
+        "english": english_text,
         "lang": lang,
-        "target": t.get(lang, ""),
+        "target": target_text,
     }
 
 
@@ -562,16 +569,33 @@ def search_phrasebook(query: str) -> dict:
     if not CACHED_TUPLES:
         load_tuples()
     for t in CACHED_TUPLES:
-        if q == t.get("english", "").lower():
-            return t
-        for lang in ("amh", "orm", "tir", "som"):
-            if q == t.get(lang, "").lower():
-                return t
+        trans = t.get("translations", {})
+        eng = trans.get("eng", t.get("english", ""))
+        amh = trans.get("amh", t.get("amh", ""))
+        orm = trans.get("orm", t.get("orm", ""))
+        tir = trans.get("tir", t.get("tir", ""))
+        som = trans.get("som", t.get("som", ""))
+
+        if eng and q == eng.lower():
+            return {"english": eng, "amh": amh, "orm": orm, "tir": tir, "som": som, "domain": t.get("domain", "general")}
+        for val in (amh, orm, tir, som):
+            if val and q == val.lower():
+                return {"english": eng, "amh": amh, "orm": orm, "tir": tir, "som": som, "domain": t.get("domain", "general")}
+
     # Substring search
     if len(q) > 3:
         for t in CACHED_TUPLES:
-            if q in t.get("english", "").lower():
-                return t
+            trans = t.get("translations", {})
+            eng = trans.get("eng", t.get("english", ""))
+            if eng and q in eng.lower():
+                return {
+                    "english": eng,
+                    "amh": trans.get("amh", t.get("amh", "")),
+                    "orm": trans.get("orm", t.get("orm", "")),
+                    "tir": trans.get("tir", t.get("tir", "")),
+                    "som": trans.get("som", t.get("som", "")),
+                    "domain": t.get("domain", "general")
+                }
     return {}
 
 
