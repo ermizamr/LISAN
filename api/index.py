@@ -42,7 +42,7 @@ class handler(BaseHTTPRequestHandler):
             "system": "LISAN Community Validation Bot",
             "mode": "Serverless Webhook",
             "bot": "@LisanAiEtBot",
-            "version": "1.0.3"
+            "version": "1.0.4"
         }
         self.wfile.write(json.dumps(response_data, indent=2).encode("utf-8"))
 

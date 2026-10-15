@@ -77,7 +77,19 @@ def load_tuples():
     return CACHED_TUPLES
 
 
-def get_candidate_sentence(user_id: int = None, preferred_lang: str = None) -> dict:
+def get_user_tg_handle(user) -> str:
+    """Returns formatted Telegram username e.g. @username or @firstname."""
+    if not user:
+        return "@contributor"
+    if user.username:
+        return f"@{user.username.lstrip('@')}"
+    if user.first_name:
+        clean_first = user.first_name.strip().replace(" ", "_")
+        return f"@{clean_first}"
+    return f"@user_{user.id}"
+
+
+def get_candidate_sentence(user_id: int = None, username: str = None, preferred_lang: str = None) -> dict:
     """Picks a sentence prioritizing under-reviewed tuples and avoiding duplicate user views.
 
     Guarantees that ALL 3,421 tuples (across all 4 Horn languages) get equal opportunity
@@ -93,6 +105,7 @@ def get_candidate_sentence(user_id: int = None, preferred_lang: str = None) -> d
     tuple_scores = get_tuple_scores()
 
     user_tag = f"tg_{user_id}" if user_id else None
+    user_handle = username if username else None
 
     # Supported target languages
     all_langs = ["amh", "orm", "tir", "som"]
@@ -113,7 +126,10 @@ def get_candidate_sentence(user_id: int = None, preferred_lang: str = None) -> d
                 )
 
                 # Skip if this specific contributor already validated this sentence
-                if user_tag and user_tag in score_data.get("reviewers", set()):
+                reviewers_set = score_data.get("reviewers", set())
+                if user_tag and user_tag in reviewers_set:
+                    continue
+                if user_handle and user_handle in reviewers_set:
                     continue
 
                 candidates.append({
@@ -193,7 +209,6 @@ def make_card_text(item: dict) -> str:
         f"<b>{target_esc}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📊 <b>Score</b>: {score_badge}\n"
-        f"🏆 <b>Reward</b>: +10 XP for vote | +30 XP for edit\n"
         f"💡 <i>Is this translation accurate, authentic, and natural?</i>"
     )
 
@@ -278,8 +293,9 @@ async def send_new_validation_card(update: Update, context: ContextTypes.DEFAULT
     """Selects and renders a new validation card prioritizing unreviewed sentences."""
     user = update.effective_user
     uid = user.id if user else None
+    tg_handle = get_user_tg_handle(user)
     pref_lang = context.user_data.get("preferred_lang")
-    item = get_candidate_sentence(user_id=uid, preferred_lang=pref_lang)
+    item = get_candidate_sentence(user_id=uid, username=tg_handle, preferred_lang=pref_lang)
 
     if not item:
         msg = "⚠️ No sentences available in the library at this moment."
@@ -353,9 +369,18 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Displays top community contributors and personal score."""
     leaders = get_leaderboard(limit=5)
-    uid = str(update.effective_user.id)
+    user = update.effective_user
+    uid = str(user.id) if user else ""
+    tg_handle = get_user_tg_handle(user)
     all_stats = load_user_gamification()
-    my_stats = all_stats.get(uid, {"points": 0, "rank": "🌱 Apprentice Linguist", "total_reviews": 0})
+    my_stats = all_stats.get(uid)
+    if not my_stats:
+        for st in all_stats.values():
+            if st.get("username") == tg_handle:
+                my_stats = st
+                break
+    if not my_stats:
+        my_stats = {"points": 0, "rank": "🌱 Apprentice Linguist", "total_reviews": 0}
 
     text = (
         f"🏆 <b>LISAN Community Leaderboard</b>\n"
@@ -372,9 +397,10 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         text += "<i>No community reviews submitted yet. Be the first!</i>\n"
 
     my_rank_esc = html.escape(str(my_stats['rank']))
+    tg_handle_esc = html.escape(str(tg_handle))
     text += (
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 <b>Your Profile</b>:\n"
+        f"👤 <b>Your Profile ({tg_handle_esc})</b>:\n"
         f"• Rank: <b>{my_rank_esc}</b>\n"
         f"• Total Points: <code>{my_stats['points']} XP</code>\n"
         f"• Reviews Cast: <code>{my_stats['total_reviews']}</code>\n\n"
@@ -408,8 +434,6 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• 📜 <b>License</b>: Apache 2.0 (Code) / CC-BY 4.0 (Corpus)\n"
         f'• 🐙 <b>GitHub</b>: <a href="https://github.com/ermizamr/LISAN">github.com/ermizamr/LISAN</a>\n'
         f'• 🌐 <b>Web Validation Hub</b>: <a href="https://lisan.ermizamr.tech/validate.html">lisan.ermizamr.tech</a>\n'
-        f"• 🗄️ <b>Database</b>: Real-time Supabase PostgreSQL\n"
-        f"• 🤖 <b>Target Models</b>: NLLB-200 600M / 1.3B, LLaMA-3 LoRA\n"
     )
 
     keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_home")]]
@@ -493,8 +517,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_new_validation_card(update, context)
         return
 
+    tg_handle = get_user_tg_handle(user)
     reviewer_id = f"tg_{user.id}"
-    username = user.username or user.first_name
 
     if data.startswith("val_good_"):
         # Record APPROVED in Supabase
@@ -507,8 +531,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             validated_text=item["target"],
             status="approved",
             reviewer_id=reviewer_id,
+            tg_username=tg_handle,
         )
-        profile = update_user_score(user.id, username, "approved")
+        profile = update_user_score(user.id, tg_handle, "approved")
         await query.answer(f"✓ Approved! +10 XP (Total: {profile['points']} XP)")
         await send_new_validation_card(update, context)
 
@@ -523,8 +548,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             validated_text=None,
             status="rejected",
             reviewer_id=reviewer_id,
+            tg_username=tg_handle,
         )
-        profile = update_user_score(user.id, username, "rejected")
+        profile = update_user_score(user.id, tg_handle, "rejected")
         await query.answer(f"✓ Rejected & Quarantined! +10 XP (Total: {profile['points']} XP)")
         await send_new_validation_card(update, context)
 
@@ -582,8 +608,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("awaiting_edit"):
         item = context.user_data.get("current_item")
         if item:
+            tg_handle = get_user_tg_handle(user)
             reviewer_id = f"tg_{user.id}"
-            username = user.username or user.first_name
 
             # Save human edit to Supabase
             record_validation(
@@ -595,9 +621,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 validated_text=text,
                 status="edited",
                 reviewer_id=reviewer_id,
-                notes=f"Community edit submitted by @{username} ({user.id})",
+                tg_username=tg_handle,
+                notes=f"Community edit submitted by {tg_handle} ({user.id})",
             )
-            profile = update_user_score(user.id, username, "edited")
+            profile = update_user_score(user.id, tg_handle, "edited")
             context.user_data["awaiting_edit"] = False
 
             await update.message.reply_text(
