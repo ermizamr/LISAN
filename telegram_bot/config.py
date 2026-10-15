@@ -30,11 +30,11 @@ SUPABASE_KEY = os.getenv(
 
 # Supported Languages
 LANGUAGES = {
-    "amh": {"name": "Amharic", "native": "አማርኛ", "flag": "🇪🇹"},
-    "orm": {"name": "Afaan Oromoo", "native": "Afaan Oromoo", "flag": "🌳"},
-    "tir": {"name": "Tigrinya", "native": "ትግርኛ", "flag": "🇪🇷"},
-    "som": {"name": "Somali", "native": "Soomaali", "flag": "🇸🇴"},
-    "eng": {"name": "English", "native": "English", "flag": "🇬🇧"},
+    "amh": {"name": "Amharic", "native": "አማርኛ"},
+    "orm": {"name": "Afaan Oromoo", "native": "Afaan Oromoo"},
+    "tir": {"name": "Tigrinya", "native": "ትግርኛ"},
+    "som": {"name": "Somali", "native": "Soomaali"},
+    "eng": {"name": "English", "native": "English"},
 }
 
 # Domains & Icons

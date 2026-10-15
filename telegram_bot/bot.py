@@ -105,7 +105,7 @@ def get_random_sentence(preferred_lang: str = None) -> dict:
 
 def make_card_text(item: dict) -> str:
     """Formats a clean, resilient HTML card for Telegram."""
-    lang_info = LANGUAGES.get(item["lang"], {"name": item["lang"], "flag": "🌐"})
+    lang_info = LANGUAGES.get(item["lang"], {"name": item["lang"]})
     domain_label = DOMAIN_ICONS.get(item["domain"], item.get("domain", "general"))
 
     english_esc = html.escape(str(item.get("english", "")))
@@ -113,16 +113,15 @@ def make_card_text(item: dict) -> str:
     domain_esc = html.escape(str(domain_label))
     lang_name = html.escape(str(lang_info.get("name", "")))
     lang_native = html.escape(str(lang_info.get("native", "")))
-    flag = lang_info.get("flag", "🌐")
 
     return (
         f"✨ <b>LISAN Community Validation Card</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🏷️ <b>Domain</b>: {domain_esc}\n"
-        f"{flag} <b>Language</b>: {lang_name} ({lang_native})\n\n"
-        f"🇬🇧 <b>English</b>:\n"
+        f"🗣️ <b>Language</b>: {lang_name} ({lang_native})\n\n"
+        f"<b>English</b>:\n"
         f"<code>{english_esc}</code>\n\n"
-        f"{flag} <b>Translation</b>:\n"
+        f"<b>{lang_name} Translation</b>:\n"
         f"<b>{target_esc}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"💡 <i>Is this translation accurate, authentic, and natural?</i>"
@@ -160,11 +159,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👋 <b>Selam, {first_name_esc}!</b>\n\n"
         f"🌟 Welcome to <b>LISAN AI</b> (ልሳን) — the open-source multilingual AI engine for "
         f"Horn of Africa languages:\n"
-        f"• 🇪🇹 <b>Amharic</b> (አማርኛ)\n"
-        f"• 🌳 <b>Afaan Oromoo</b>\n"
-        f"• 🇪🇷 <b>Tigrinya</b> (ትግርኛ)\n"
-        f"• 🇸🇴 <b>Somali</b> (Soomaali)\n"
-        f"• 🇬🇧 <b>English</b>\n\n"
+        f"• <b>Amharic</b> (አማርኛ)\n"
+        f"• <b>Afaan Oromoo</b>\n"
+        f"• <b>Tigrinya</b> (ትግርኛ)\n"
+        f"• <b>Somali</b> (Soomaali)\n"
+        f"• <b>English</b>\n\n"
         f"Help us evaluate, correct, and curate authentic datasets for open-source AI models!"
     )
 
@@ -380,15 +379,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Render language selection keyboard
         buttons = [
             [
-                InlineKeyboardButton("🇪🇹 Amharic", callback_data="set_lang_amh"),
-                InlineKeyboardButton("🌳 Afaan Oromoo", callback_data="set_lang_orm"),
+                InlineKeyboardButton("Amharic (አማርኛ)", callback_data="set_lang_amh"),
+                InlineKeyboardButton("Afaan Oromoo", callback_data="set_lang_orm"),
             ],
             [
-                InlineKeyboardButton("🇪🇷 Tigrinya", callback_data="set_lang_tir"),
-                InlineKeyboardButton("🇸🇴 Somali", callback_data="set_lang_som"),
+                InlineKeyboardButton("Tigrinya (ትግርኛ)", callback_data="set_lang_tir"),
+                InlineKeyboardButton("Somali (Soomaali)", callback_data="set_lang_som"),
             ],
             [
-                InlineKeyboardButton("🎲 All Languages (Random)", callback_data="set_lang_all"),
+                InlineKeyboardButton("All Languages (Random)", callback_data="set_lang_all"),
             ],
             [
                 InlineKeyboardButton("🔙 Back to Card", callback_data="val_start"),
@@ -396,7 +395,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await query.answer()
         await query.edit_message_text(
-            "🌍 <b>Select which language you want to review:</b>",
+            "<b>Select which language you want to review:</b>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
@@ -464,7 +463,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             f"✏️ <b>Suggest a Correction for {html.escape(lang_name)}</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🇬🇧 <b>English</b>:\n<code>{english_esc}</code>\n\n"
+            f"<b>English</b>:\n<code>{english_esc}</code>\n\n"
             f"Current draft:\n<code>{target_esc}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"👇 <b>Please type and send the correct translation as a reply message:</b>\n"
@@ -538,11 +537,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = (
             f"📖 <b>LISAN Corpus Match Found</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🇬🇧 <b>English</b>: <code>{html.escape(matched.get('english', 'N/A'))}</code>\n"
-            f"🇪🇹 <b>Amharic</b>: {html.escape(matched.get('amh', 'N/A'))}\n"
-            f"🌳 <b>Afaan Oromoo</b>: {html.escape(matched.get('orm', 'N/A'))}\n"
-            f"🇪🇷 <b>Tigrinya</b>: {html.escape(matched.get('tir', 'N/A'))}\n"
-            f"🇸🇴 <b>Somali</b>: {html.escape(matched.get('som', 'N/A'))}\n"
+            f"<b>English</b>: <code>{html.escape(matched.get('english', 'N/A'))}</code>\n"
+            f"<b>Amharic</b>: {html.escape(matched.get('amh', 'N/A'))}\n"
+            f"<b>Afaan Oromoo</b>: {html.escape(matched.get('orm', 'N/A'))}\n"
+            f"<b>Tigrinya</b>: {html.escape(matched.get('tir', 'N/A'))}\n"
+            f"<b>Somali</b>: {html.escape(matched.get('som', 'N/A'))}\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🏷️ Domain: {html.escape(matched.get('domain', 'general'))}"
         )
