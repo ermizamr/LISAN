@@ -27,6 +27,9 @@ def record_validation(
 ) -> bool:
     """Inserts a community review record into Supabase PostgreSQL."""
     endpoint = f"{SUPABASE_URL}/rest/v1/community_validations"
+    reviewer_str = f"tg:{reviewer_id}"
+    full_note = f"{reviewer_str} | {notes}" if notes else reviewer_str
+
     payload = {
         "tuple_id": str(tuple_id),
         "domain": str(domain),
@@ -35,8 +38,7 @@ def record_validation(
         "original_target": str(original_target),
         "validated_text": str(validated_text) if validated_text else None,
         "status": str(status),
-        "reviewer_id": str(reviewer_id),
-        "notes": str(notes) if notes else f"Submitted via Telegram Bot by {reviewer_id}",
+        "reviewer_note": full_note,
     }
 
     data = json.dumps(payload).encode("utf-8")
@@ -50,9 +52,52 @@ def record_validation(
         return False
 
 
+def get_tuple_scores() -> dict:
+    """Fetches review scores and validation counts per (tuple_id, target_lang) from Supabase."""
+    endpoint = f"{SUPABASE_URL}/rest/v1/community_validations?select=tuple_id,target_lang,status,reviewer_note"
+    req = urllib.request.Request(
+        endpoint,
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+    )
+    scores = {}
+    try:
+        with urllib.request.urlopen(req, timeout=5) as response:
+            rows = json.loads(response.read().decode("utf-8"))
+            for r in rows:
+                tid = str(r.get("tuple_id"))
+                lang = str(r.get("target_lang"))
+                status = str(r.get("status"))
+                rev_note = str(r.get("reviewer_note") or "")
+
+                key = f"{tid}:{lang}"
+                if key not in scores:
+                    scores[key] = {
+                        "approved": 0,
+                        "rejected": 0,
+                        "edited": 0,
+                        "total": 0,
+                        "reviewers": set(),
+                    }
+                if status in ("approved", "edited"):
+                    scores[key]["approved"] += 1
+                elif status == "rejected":
+                    scores[key]["rejected"] += 1
+                if status == "edited":
+                    scores[key]["edited"] += 1
+                scores[key]["total"] += 1
+
+                # Extract reviewer tag for deduplication
+                if "tg:" in rev_note:
+                    parts = rev_note.split("|")[0].replace("tg:", "").strip()
+                    scores[key]["reviewers"].add(parts)
+    except Exception as e:
+        print(f"[Supabase Error] Failed to fetch tuple scores: {e}")
+    return scores
+
+
 def get_global_stats() -> dict:
-    """Fetches total review counts and approved/rejected breakdown from Supabase."""
-    endpoint = f"{SUPABASE_URL}/rest/v1/community_validations?select=status"
+    """Fetches total review counts, unique corpus coverage, and gold-verified count from Supabase."""
+    endpoint = f"{SUPABASE_URL}/rest/v1/community_validations?select=tuple_id,target_lang,status"
     req = urllib.request.Request(
         endpoint,
         headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
@@ -64,15 +109,35 @@ def get_global_stats() -> dict:
             approved = sum(1 for r in rows if r.get("status") in ("approved", "edited"))
             rejected = sum(1 for r in rows if r.get("status") == "rejected")
             edited = sum(1 for r in rows if r.get("status") == "edited")
+
+            # Track unique tuple coverage and consensus
+            tuple_approvals = {}
+            for r in rows:
+                tid = r.get("tuple_id")
+                if tid and r.get("status") in ("approved", "edited"):
+                    tuple_approvals[tid] = tuple_approvals.get(tid, 0) + 1
+
+            unique_validated = len(tuple_approvals)
+            gold_verified = sum(1 for cnt in tuple_approvals.values() if cnt >= 3)
+
             return {
                 "total": total,
                 "approved": approved,
                 "rejected": rejected,
                 "edited": edited,
+                "unique_validated": unique_validated,
+                "gold_verified": gold_verified,
             }
     except Exception as e:
         print(f"[Supabase Error] Failed to get stats: {e}")
-        return {"total": 0, "approved": 0, "rejected": 0, "edited": 0}
+        return {
+            "total": 0,
+            "approved": 0,
+            "rejected": 0,
+            "edited": 0,
+            "unique_validated": 0,
+            "gold_verified": 0,
+        }
 
 
 def load_user_gamification() -> dict:

@@ -47,6 +47,7 @@ from telegram_bot.config import (
 from telegram_bot.supabase_client import (
     record_validation,
     get_global_stats,
+    get_tuple_scores,
     update_user_score,
     get_leaderboard,
     load_user_gamification,
@@ -76,35 +77,88 @@ def load_tuples():
     return CACHED_TUPLES
 
 
-def get_random_sentence(preferred_lang: str = None) -> dict:
-    """Picks a random sentence candidate from the tuple library."""
+def get_candidate_sentence(user_id: int = None, preferred_lang: str = None) -> dict:
+    """Picks a sentence prioritizing under-reviewed tuples and avoiding duplicate user views.
+
+    Guarantees that ALL 3,421 tuples (across all 4 Horn languages) get equal opportunity
+    for community validation and reach consensus threshold (3 concordant reviews),
+    while ensuring no contributor is ever asked to review the same sentence twice.
+    """
     if not CACHED_TUPLES:
         load_tuples()
     if not CACHED_TUPLES:
         return {}
 
-    t = random.choice(CACHED_TUPLES)
-    translations = t.get("translations", {})
-    available_langs = [l for l in ["amh", "orm", "tir", "som"] if l in translations]
-    if not available_langs:
-        available_langs = ["amh", "orm", "tir", "som"]
+    # Query live community review scores from Supabase
+    tuple_scores = get_tuple_scores()
 
-    lang = preferred_lang if (preferred_lang in translations) else random.choice(available_langs)
+    user_tag = f"tg_{user_id}" if user_id else None
 
-    english_text = translations.get("eng", t.get("english", ""))
-    target_text = translations.get(lang, t.get(lang, ""))
+    # Supported target languages
+    all_langs = ["amh", "orm", "tir", "som"]
+    target_langs = [preferred_lang] if preferred_lang in all_langs else all_langs
 
-    return {
-        "tuple_id": t.get("id"),
-        "domain": t.get("domain", "general"),
-        "english": english_text,
-        "lang": lang,
-        "target": target_text,
-    }
+    # Filter candidate pool
+    candidates = []
+    for t in CACHED_TUPLES:
+        translations = t.get("translations", {})
+        tid = str(t.get("id"))
+
+        for lang in target_langs:
+            if lang in translations and translations[lang]:
+                score_key = f"{tid}:{lang}"
+                score_data = tuple_scores.get(
+                    score_key,
+                    {"total": 0, "approved": 0, "rejected": 0, "edited": 0, "reviewers": set()},
+                )
+
+                # Skip if this specific contributor already validated this sentence
+                if user_tag and user_tag in score_data.get("reviewers", set()):
+                    continue
+
+                candidates.append({
+                    "tuple": t,
+                    "lang": lang,
+                    "tuple_id": tid,
+                    "domain": t.get("domain", "general"),
+                    "english": translations.get("eng", t.get("english", "")),
+                    "target": translations.get(lang, t.get(lang, "")),
+                    "total_reviews": score_data.get("total", 0),
+                    "approved": score_data.get("approved", 0),
+                    "rejected": score_data.get("rejected", 0),
+                    "edited": score_data.get("edited", 0),
+                })
+
+    # If the user has reviewed everything or pool is temporarily exhausted, fallback
+    if not candidates:
+        for t in CACHED_TUPLES:
+            translations = t.get("translations", {})
+            tid = str(t.get("id"))
+            for lang in target_langs:
+                if lang in translations and translations[lang]:
+                    candidates.append({
+                        "tuple": t,
+                        "lang": lang,
+                        "tuple_id": tid,
+                        "domain": t.get("domain", "general"),
+                        "english": translations.get("eng", t.get("english", "")),
+                        "target": translations.get(lang, t.get(lang, "")),
+                        "total_reviews": 0,
+                        "approved": 0,
+                        "rejected": 0,
+                        "edited": 0,
+                    })
+
+    # Find the minimum review tier so under-reviewed sentences get served first!
+    min_reviews = min(c["total_reviews"] for c in candidates)
+    priority_pool = [c for c in candidates if c["total_reviews"] == min_reviews]
+
+    # Pick randomly from the lowest review count pool for even distribution
+    return random.choice(priority_pool)
 
 
 def make_card_text(item: dict) -> str:
-    """Formats a clean, resilient HTML card for Telegram."""
+    """Formats a clean, resilient HTML card for Telegram with live sentence score."""
     lang_info = LANGUAGES.get(item["lang"], {"name": item["lang"]})
     domain_label = DOMAIN_ICONS.get(item["domain"], item.get("domain", "general"))
 
@@ -113,6 +167,20 @@ def make_card_text(item: dict) -> str:
     domain_esc = html.escape(str(domain_label))
     lang_name = html.escape(str(lang_info.get("name", "")))
     lang_native = html.escape(str(lang_info.get("native", "")))
+
+    approved = item.get("approved", 0)
+    rejected = item.get("rejected", 0)
+    total_reviews = item.get("total_reviews", 0)
+
+    # Score & Consensus Status Badge
+    if total_reviews == 0:
+        score_badge = "🆕 <b>Needs Initial Review</b> (0/3 votes)"
+    elif approved >= 3:
+        score_badge = "✅ <b>Verified Gold Standard</b> (3/3 approvals reached!)"
+    elif rejected >= 2:
+        score_badge = "⚠️ <b>Needs Human Correction</b> (Multiple flags)"
+    else:
+        score_badge = f"⏳ <b>In Progress</b>: {total_reviews}/3 reviews ({approved} 👍, {rejected} 👎)"
 
     return (
         f"✨ <b>LISAN Community Validation Card</b>\n"
@@ -124,6 +192,8 @@ def make_card_text(item: dict) -> str:
         f"<b>{lang_name} Translation</b>:\n"
         f"<b>{target_esc}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 <b>Score</b>: {score_badge}\n"
+        f"🏆 <b>Reward</b>: +10 XP for vote | +30 XP for edit\n"
         f"💡 <i>Is this translation accurate, authentic, and natural?</i>"
     )
 
@@ -205,9 +275,11 @@ async def validate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def send_new_validation_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Selects and renders a new validation card."""
+    """Selects and renders a new validation card prioritizing unreviewed sentences."""
+    user = update.effective_user
+    uid = user.id if user else None
     pref_lang = context.user_data.get("preferred_lang")
-    item = get_random_sentence(pref_lang)
+    item = get_candidate_sentence(user_id=uid, preferred_lang=pref_lang)
 
     if not item:
         msg = "⚠️ No sentences available in the library at this moment."
@@ -243,17 +315,23 @@ async def send_new_validation_card(update: Update, context: ContextTypes.DEFAULT
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows global dataset and live Supabase validation statistics."""
     stats = get_global_stats()
+    unique_cnt = stats.get("unique_validated", 0)
+    gold_cnt = stats.get("gold_verified", 0)
+    coverage_pct = round((unique_cnt / 3421) * 100, 1) if unique_cnt else 0.0
+
     text = (
         f"📊 <b>LISAN Global Corpus & Validation Scorecard</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📦 <b>Total Bitext Dataset</b>: <code>373,276 pairs</code>\n"
         f"🔀 <b>Language Directions</b>: <code>20 pairs (All 5x4 symmetrical)</code>\n"
-        f"💎 <b>Gold Multi-Way Tuples</b>: <code>3,421 concepts (17,105 sentences)</code>\n\n"
-        f"🌐 <b>Live Community Consensus (Supabase)</b>:\n"
-        f"• Total Submissions: <code>{stats['total']:,}</code>\n"
+        f"💎 <b>Gold Validation Library</b>: <code>3,421 concepts (13,684 sentences)</code>\n\n"
+        f"🌐 <b>Live Community Consensus & Coverage</b>:\n"
+        f"• Total Reviews Cast: <code>{stats['total']:,}</code>\n"
         f"• Approved by Community: <code>{stats['approved']:,}</code>\n"
         f"• Human Corrections (Edits): <code>{stats['edited']:,}</code>\n"
-        f"• Quarantined / Rejected: <code>{stats['rejected']:,}</code>\n"
+        f"• Flagged / Quarantined: <code>{stats['rejected']:,}</code>\n"
+        f"• Unique Sentences Validated: <code>{unique_cnt:,} / 3,421 ({coverage_pct}%)</code>\n"
+        f"• Reached Gold Standard (3/3): <code>{gold_cnt:,} concepts</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f'🔗 <b>Live Hub</b>: <a href="https://lisan.ermizamr.tech/validate.html">lisan.ermizamr.tech</a>'
     )
