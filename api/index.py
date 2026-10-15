@@ -19,24 +19,14 @@ if str(ROOT_DIR) not in sys.path:
 from telegram import Update
 from telegram_bot.bot import create_bot_application
 
-# Global cached application instance across lambda warm invocations
-_app = None
-
-
-def get_application():
-    global _app
-    if _app is None:
-        _app = create_bot_application()
-    return _app
-
 
 async def process_telegram_update(update_dict: dict):
-    """Processes a single Telegram update asynchronously."""
-    app = get_application()
-    if not getattr(app, "_initialized", False):
-        await app.initialize()
-    update = Update.de_json(update_dict, app.bot)
-    await app.process_update(update)
+    """Processes a single Telegram update with full async lifecycle."""
+    app = create_bot_application()
+    async with app:
+        update = Update.de_json(update_dict, app.bot)
+        if update:
+            await app.process_update(update)
 
 
 class handler(BaseHTTPRequestHandler):
@@ -52,7 +42,7 @@ class handler(BaseHTTPRequestHandler):
             "system": "LISAN Community Validation Bot",
             "mode": "Serverless Webhook",
             "bot": "@LisanAiEtBot",
-            "version": "1.0.0"
+            "version": "1.0.2"
         }
         self.wfile.write(json.dumps(response_data, indent=2).encode("utf-8"))
 
@@ -71,7 +61,7 @@ class handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b'{"ok": true}')
         except Exception as exc:
-            # Return 200 even on error so Telegram does not continually retry failed updates
+            # Return 200 so Telegram does not retry failed updates repeatedly
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

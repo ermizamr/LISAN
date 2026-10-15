@@ -16,6 +16,10 @@ import argparse
 import httpx
 from pathlib import Path
 
+# Ensure proper encoding for Windows consoles
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 # Add root directory to sys.path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
