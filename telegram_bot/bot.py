@@ -11,6 +11,7 @@ Features:
 import os
 import sys
 import json
+import html
 import random
 import logging
 from pathlib import Path
@@ -96,21 +97,28 @@ def get_random_sentence(preferred_lang: str = None) -> dict:
 
 
 def make_card_text(item: dict) -> str:
-    """Formats a clean markdown card for Telegram."""
+    """Formats a clean, resilient HTML card for Telegram."""
     lang_info = LANGUAGES.get(item["lang"], {"name": item["lang"], "flag": "🌐"})
-    domain_label = DOMAIN_ICONS.get(item["domain"], item["domain"])
+    domain_label = DOMAIN_ICONS.get(item["domain"], item.get("domain", "general"))
+
+    english_esc = html.escape(str(item.get("english", "")))
+    target_esc = html.escape(str(item.get("target", "")))
+    domain_esc = html.escape(str(domain_label))
+    lang_name = html.escape(str(lang_info.get("name", "")))
+    lang_native = html.escape(str(lang_info.get("native", "")))
+    flag = lang_info.get("flag", "🌐")
 
     return (
-        f"✨ *LISAN Community Validation Card*\n"
+        f"✨ <b>LISAN Community Validation Card</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🏷️ *Domain*: {domain_label}\n"
-        f"{lang_info['flag']} *Language*: {lang_info['name']} ({lang_info.get('native', '')})\n\n"
-        f"🇬🇧 *English*:\n"
-        f"`{item['english']}`\n\n"
-        f"{lang_info['flag']} *Translation*:\n"
-        f"*{item['target']}*\n"
+        f"🏷️ <b>Domain</b>: {domain_esc}\n"
+        f"{flag} <b>Language</b>: {lang_name} ({lang_native})\n\n"
+        f"🇬🇧 <b>English</b>:\n"
+        f"<code>{english_esc}</code>\n\n"
+        f"{flag} <b>Translation</b>:\n"
+        f"<b>{target_esc}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 _Is this translation accurate, authentic, and natural?_"
+        f"💡 <i>Is this translation accurate, authentic, and natural?</i>"
     )
 
 
@@ -140,15 +148,16 @@ def make_card_keyboard(item: dict) -> InlineKeyboardMarkup:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends the welcoming main menu."""
     user = update.effective_user
+    first_name_esc = html.escape(user.first_name if user else "Friend")
     welcome_text = (
-        f"👋 *Selam, {user.first_name}!*\n\n"
-        f"🌟 Welcome to *LISAN AI* (ልሳን) — the open-source multilingual AI engine for "
+        f"👋 <b>Selam, {first_name_esc}!</b>\n\n"
+        f"🌟 Welcome to <b>LISAN AI</b> (ልሳን) — the open-source multilingual AI engine for "
         f"Horn of Africa languages:\n"
-        f"• 🇪🇹 *Amharic* (አማርኛ)\n"
-        f"• 🌳 *Afaan Oromoo*\n"
-        f"• 🇪🇷 *Tigrinya* (ትግርኛ)\n"
-        f"• 🇸🇴 *Somali* (Soomaali)\n"
-        f"• 🇬🇧 *English*\n\n"
+        f"• 🇪🇹 <b>Amharic</b> (አማርኛ)\n"
+        f"• 🌳 <b>Afaan Oromoo</b>\n"
+        f"• 🇪🇷 <b>Tigrinya</b> (ትግርኛ)\n"
+        f"• 🇸🇴 <b>Somali</b> (Soomaali)\n"
+        f"• 🇬🇧 <b>English</b>\n\n"
         f"Help us evaluate, correct, and curate authentic datasets for open-source AI models!"
     )
 
@@ -170,12 +179,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(
-            welcome_text, parse_mode="Markdown", reply_markup=reply_markup
-        )
+        try:
+            await update.callback_query.edit_message_text(
+                welcome_text, parse_mode="HTML", reply_markup=reply_markup
+            )
+        except Exception:
+            await update.callback_query.message.reply_text(
+                welcome_text, parse_mode="HTML", reply_markup=reply_markup
+            )
     else:
         await update.message.reply_text(
-            welcome_text, parse_mode="Markdown", reply_markup=reply_markup
+            welcome_text, parse_mode="HTML", reply_markup=reply_markup
         )
 
 
@@ -192,6 +206,7 @@ async def send_new_validation_card(update: Update, context: ContextTypes.DEFAULT
     if not item:
         msg = "⚠️ No sentences available in the library at this moment."
         if update.callback_query:
+            await update.callback_query.answer()
             await update.callback_query.edit_message_text(msg)
         else:
             await update.message.reply_text(msg)
@@ -206,15 +221,16 @@ async def send_new_validation_card(update: Update, context: ContextTypes.DEFAULT
     if update.callback_query:
         try:
             await update.callback_query.edit_message_text(
-                text, parse_mode="Markdown", reply_markup=reply_markup
+                text, parse_mode="HTML", reply_markup=reply_markup
             )
-        except Exception:
+        except Exception as e:
+            logger.warning(f"edit_message_text failed ({e}), sending new message")
             await update.callback_query.message.reply_text(
-                text, parse_mode="Markdown", reply_markup=reply_markup
+                text, parse_mode="HTML", reply_markup=reply_markup
             )
     else:
         await update.message.reply_text(
-            text, parse_mode="Markdown", reply_markup=reply_markup
+            text, parse_mode="HTML", reply_markup=reply_markup
         )
 
 
@@ -222,18 +238,18 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows global dataset and live Supabase validation statistics."""
     stats = get_global_stats()
     text = (
-        f"📊 *LISAN Global Corpus & Validation Scorecard*\n"
+        f"📊 <b>LISAN Global Corpus & Validation Scorecard</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📦 *Total Bitext Dataset*: `373,276 pairs`\n"
-        f"🔀 *Language Directions*: `20 pairs (All 5x4 symmetrical)`\n"
-        f"💎 *Gold Multi-Way Tuples*: `3,421 concepts (17,105 sentences)`\n\n"
-        f"🌐 *Live Community Consensus (Supabase)*:\n"
-        f"• Total Submissions: `{stats['total']:,}`\n"
-        f"• Approved by Community: `{stats['approved']:,}`\n"
-        f"• Human Corrections (Edits): `{stats['edited']:,}`\n"
-        f"• Quarantined / Rejected: `{stats['rejected']:,}`\n"
+        f"📦 <b>Total Bitext Dataset</b>: <code>373,276 pairs</code>\n"
+        f"🔀 <b>Language Directions</b>: <code>20 pairs (All 5x4 symmetrical)</code>\n"
+        f"💎 <b>Gold Multi-Way Tuples</b>: <code>3,421 concepts (17,105 sentences)</code>\n\n"
+        f"🌐 <b>Live Community Consensus (Supabase)</b>:\n"
+        f"• Total Submissions: <code>{stats['total']:,}</code>\n"
+        f"• Approved by Community: <code>{stats['approved']:,}</code>\n"
+        f"• Human Corrections (Edits): <code>{stats['edited']:,}</code>\n"
+        f"• Quarantined / Rejected: <code>{stats['rejected']:,}</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔗 *Live Hub*: [lisan.ermizamr.tech](https://lisan.ermizamr.tech/validate.html)"
+        f'🔗 <b>Live Hub</b>: <a href="https://lisan.ermizamr.tech/validate.html">lisan.ermizamr.tech</a>'
     )
 
     keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_home")]]
@@ -242,11 +258,11 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(
-            text, parse_mode="Markdown", reply_markup=reply_markup, disable_web_page_preview=True
+            text, parse_mode="HTML", reply_markup=reply_markup, disable_web_page_preview=True
         )
     else:
         await update.message.reply_text(
-            text, parse_mode="Markdown", reply_markup=reply_markup, disable_web_page_preview=True
+            text, parse_mode="HTML", reply_markup=reply_markup, disable_web_page_preview=True
         )
 
 
@@ -258,24 +274,27 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     my_stats = all_stats.get(uid, {"points": 0, "rank": "🌱 Apprentice Linguist", "total_reviews": 0})
 
     text = (
-        f"🏆 *LISAN Community Leaderboard*\n"
+        f"🏆 <b>LISAN Community Leaderboard</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
     )
 
     if leaders:
         for i, u in enumerate(leaders, 1):
             badge = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-            text += f"{badge} *{u['username']}* — `{u['points']} XP` ({u['rank']})\n"
+            username_esc = html.escape(str(u['username']))
+            rank_esc = html.escape(str(u['rank']))
+            text += f"{badge} <b>{username_esc}</b> — <code>{u['points']} XP</code> ({rank_esc})\n"
     else:
-        text += "_No community reviews submitted yet. Be the first!_\n"
+        text += "<i>No community reviews submitted yet. Be the first!</i>\n"
 
+    my_rank_esc = html.escape(str(my_stats['rank']))
     text += (
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 *Your Profile*:\n"
-        f"• Rank: *{my_stats['rank']}*\n"
-        f"• Total Points: `{my_stats['points']} XP`\n"
-        f"• Reviews Cast: `{my_stats['total_reviews']}`\n\n"
-        f"💡 _Tip: Validating gives +10 XP, submitting a corrected translation gives +30 XP!_"
+        f"👤 <b>Your Profile</b>:\n"
+        f"• Rank: <b>{my_rank_esc}</b>\n"
+        f"• Total Points: <code>{my_stats['points']} XP</code>\n"
+        f"• Reviews Cast: <code>{my_stats['total_reviews']}</code>\n\n"
+        f"💡 <i>Tip: Validating gives +10 XP, submitting a corrected translation gives +30 XP!</i>"
     )
 
     keyboard = [
@@ -287,26 +306,26 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     if update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(
-            text, parse_mode="Markdown", reply_markup=reply_markup
+            text, parse_mode="HTML", reply_markup=reply_markup
         )
     else:
         await update.message.reply_text(
-            text, parse_mode="Markdown", reply_markup=reply_markup
+            text, parse_mode="HTML", reply_markup=reply_markup
         )
 
 
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Displays open-source project info and links."""
     text = (
-        f"ℹ️ *About LISAN (ልሳን) AI*\n"
+        f"ℹ️ <b>About LISAN (ልሳን) AI</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"LISAN is an open-source initiative dedicated to advancing AI for low-resource "
         f"languages of the Horn of Africa.\n\n"
-        f"• 📜 *License*: Apache 2.0 (Code) / CC-BY 4.0 (Corpus)\n"
-        f"• 🐙 *GitHub*: [github.com/ermizamr/LISAN](https://github.com/ermizamr/LISAN)\n"
-        f"• 🌐 *Web Validation Hub*: [lisan.ermizamr.tech](https://lisan.ermizamr.tech/validate.html)\n"
-        f"• 🗄️ *Database*: Real-time Supabase PostgreSQL\n"
-        f"• 🤖 *Target Models*: NLLB-200 600M / 1.3B, LLaMA-3 LoRA\n"
+        f"• 📜 <b>License</b>: Apache 2.0 (Code) / CC-BY 4.0 (Corpus)\n"
+        f'• 🐙 <b>GitHub</b>: <a href="https://github.com/ermizamr/LISAN">github.com/ermizamr/LISAN</a>\n'
+        f'• 🌐 <b>Web Validation Hub</b>: <a href="https://lisan.ermizamr.tech/validate.html">lisan.ermizamr.tech</a>\n'
+        f"• 🗄️ <b>Database</b>: Real-time Supabase PostgreSQL\n"
+        f"• 🤖 <b>Target Models</b>: NLLB-200 600M / 1.3B, LLaMA-3 LoRA\n"
     )
 
     keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_home")]]
@@ -315,11 +334,11 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(
-            text, parse_mode="Markdown", reply_markup=reply_markup, disable_web_page_preview=True
+            text, parse_mode="HTML", reply_markup=reply_markup, disable_web_page_preview=True
         )
     else:
         await update.message.reply_text(
-            text, parse_mode="Markdown", reply_markup=reply_markup, disable_web_page_preview=True
+            text, parse_mode="HTML", reply_markup=reply_markup, disable_web_page_preview=True
         )
 
 
@@ -347,6 +366,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await about_command(update, context)
         return
     elif data == "val_start":
+        await query.answer()
         await send_new_validation_card(update, context)
         return
     elif data == "val_lang_picker":
@@ -369,8 +389,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await query.answer()
         await query.edit_message_text(
-            "🌍 *Select which language you want to review:*",
-            parse_mode="Markdown",
+            "🌍 <b>Select which language you want to review:</b>",
+            parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
         return
@@ -385,7 +405,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Validation action callbacks
     item = context.user_data.get("current_item")
     if not item:
-        await query.answer("Session expired. Loading new sentence...")
+        await query.answer("Loading new sentence...")
         await send_new_validation_card(update, context)
         return
 
@@ -431,28 +451,30 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("val_edit_"):
         context.user_data["awaiting_edit"] = True
         lang_name = LANGUAGES.get(item["lang"], {}).get("name", item["lang"])
+        english_esc = html.escape(str(item["english"]))
+        target_esc = html.escape(str(item["target"]))
         await query.answer("Awaiting your edit...")
         await query.edit_message_text(
-            f"✏️ *Suggest a Correction for {lang_name}*\n"
+            f"✏️ <b>Suggest a Correction for {html.escape(lang_name)}</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🇬🇧 *English*:\n`{item['english']}`\n\n"
-            f"Current draft:\n`{item['target']}`\n"
+            f"🇬🇧 <b>English</b>:\n<code>{english_esc}</code>\n\n"
+            f"Current draft:\n<code>{target_esc}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"👇 *Please type and send the correct translation as a reply message:*\n"
-            f"_(Or type /cancel to go back)_",
-            parse_mode="Markdown",
+            f"👇 <b>Please type and send the correct translation as a reply message:</b>\n"
+            f"<i>(Or type /cancel to go back)</i>",
+            parse_mode="HTML",
         )
 
     elif data == "menu_translate":
         context.user_data["awaiting_translation"] = True
         await query.answer()
         await query.edit_message_text(
-            "🌐 *LISAN Translation Engine*\n"
+            "🌐 <b>LISAN Translation Engine</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             "Send any word or sentence in Amharic, Oromo, Tigrinya, Somali, or English.\n\n"
             "The bot will match it across our 373,000+ bilingual phrase pairs!\n\n"
-            "_(Type your sentence below)_",
-            parse_mode="Markdown",
+            "<i>(Type your sentence below)</i>",
+            parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu_home")]]),
         )
 
@@ -495,10 +517,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["awaiting_edit"] = False
 
             await update.message.reply_text(
-                f"🎉 *Thank you! Your correction has been recorded for the AI training set!*\n"
-                f"🌟 *+30 XP earned!* (Total: `{profile['points']} XP` — {profile['rank']})\n\n"
+                f"🎉 <b>Thank you! Your correction has been recorded for the AI training set!</b>\n"
+                f"🌟 <b>+30 XP earned!</b> (Total: <code>{profile['points']} XP</code> — {html.escape(profile['rank'])})\n\n"
                 f"Here is your next sentence:",
-                parse_mode="Markdown",
+                parse_mode="HTML",
             )
             await send_new_validation_card(update, context)
             return
@@ -507,21 +529,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     matched = search_phrasebook(text)
     if matched:
         reply = (
-            f"📖 *LISAN Corpus Match Found*\n"
+            f"📖 <b>LISAN Corpus Match Found</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🇬🇧 *English*: `{matched.get('english', 'N/A')}`\n"
-            f"🇪🇹 *Amharic*: {matched.get('amh', 'N/A')}\n"
-            f"🌳 *Afaan Oromoo*: {matched.get('orm', 'N/A')}\n"
-            f"🇪🇷 *Tigrinya*: {matched.get('tir', 'N/A')}\n"
-            f"🇸🇴 *Somali*: {matched.get('som', 'N/A')}\n"
+            f"🇬🇧 <b>English</b>: <code>{html.escape(matched.get('english', 'N/A'))}</code>\n"
+            f"🇪🇹 <b>Amharic</b>: {html.escape(matched.get('amh', 'N/A'))}\n"
+            f"🌳 <b>Afaan Oromoo</b>: {html.escape(matched.get('orm', 'N/A'))}\n"
+            f"🇪🇷 <b>Tigrinya</b>: {html.escape(matched.get('tir', 'N/A'))}\n"
+            f"🇸🇴 <b>Somali</b>: {html.escape(matched.get('som', 'N/A'))}\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🏷️ Domain: {matched.get('domain', 'general')}"
+            f"🏷️ Domain: {html.escape(matched.get('domain', 'general'))}"
         )
     else:
+        text_esc = html.escape(text)
         reply = (
-            f"🔍 *Search Result*:\n"
-            f"No exact match found in the gold offline tuple bank for: `\"{text}\"`.\n\n"
-            f"💡 _Would you like to validate community sentences instead?_"
+            f"🔍 <b>Search Result</b>:\n"
+            f"No exact match found in the gold offline tuple bank for: <code>\"{text_esc}\"</code>.\n\n"
+            f"💡 <i>Would you like to validate community sentences instead?</i>"
         )
 
     keyboard = [
@@ -529,7 +552,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_home")],
     ]
     await update.message.reply_text(
-        reply, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+        reply, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
