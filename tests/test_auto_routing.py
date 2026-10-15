@@ -30,6 +30,9 @@ test_files = [
     ("real_test5.wav", "English (What are you talking about...)"),
 ]
 
+from pathlib import Path
+
 for f, desc in test_files:
-    det = detect_audio_language(f, ("amh", "eng"))
+    audio_path = Path("data/sample_audio") / f if not Path(f).exists() else Path(f)
+    det = detect_audio_language(str(audio_path), ("amh", "eng"))
     print(f"File: {f} ({desc}) => Auto-detected: {det}\n")

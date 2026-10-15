@@ -1,0 +1,36 @@
+# ====================================================================
+# LISAN (ልሳን) - Speech & Machine Translation Dependencies
+# ====================================================================
+
+# Core PyTorch & Audio Processing
+torch>=2.1.0
+torchaudio>=2.1.0
+numpy>=1.24.0
+scipy>=1.11.0
+soundfile>=0.12.1
+
+# Speech-to-Text (STT) & Decoding
+openai-whisper>=20231117
+transformers>=4.40.0
+sentencepiece>=0.2.0
+sacremoses>=0.1.1
+pyctcdecode>=0.5.0
+
+# Neural Machine Translation (NMT) & High-Speed Inference
+ctranslate2>=4.0.0
+onnxruntime>=1.18.0
+optimum>=1.20.0
+
+# Speech Synthesis (TTS)
+piper-tts>=1.2.0
+
+# Backend Server (FastAPI REST & Streaming)
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+requests>=2.31.0
+
+# Evaluation & Metrics
+sacrebleu>=2.4.0
+tqdm>=4.66.0
+rich>=13.7.0

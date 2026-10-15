@@ -21,10 +21,13 @@ tests = [
     ("real_test5.wav", "amh", "eng", "User spoke English paragraph with wrong app direction"),
 ]
 
+from pathlib import Path
+
 print("=" * 80)
 for fname, req_src, req_tgt, desc in tests:
+    audio_path = Path("data/sample_audio") / fname if not Path(fname).exists() else Path(fname)
     print(f"\n>>> Running {fname} ({desc}) | Requested: {req_src} -> {req_tgt}")
-    res = pipeline.translate_audio(fname, req_src, req_tgt, speak_result=False)
+    res = pipeline.translate_audio(str(audio_path), req_src, req_tgt, speak_result=False)
     print(f"  Effective direction: {res['src_lang']} -> {res['tgt_lang']}")
     print(f"  Source text:         '{res['source_text']}'")
     print(f"  Translated text:     '{res['translated_text']}'")

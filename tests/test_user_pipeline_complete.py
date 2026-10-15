@@ -17,12 +17,15 @@ files = [
     ("real_user3.wav", "amh", "eng", "Test 3: User monologue with 'በናትህ', 'አስቤ አላውቅም', cities & countries"),
 ]
 
-for audio_path, src, tgt, desc in files:
+from pathlib import Path
+
+for audio_fname, src, tgt, desc in files:
+    audio_path = Path("data/sample_audio") / audio_fname if not Path(audio_fname).exists() else Path(audio_fname)
     print(f"\n==================================================")
     print(f"Running: {desc}")
     print(f"Audio: {audio_path}")
     t0 = time.perf_counter()
-    result = pipeline.translate_audio(audio_path, src, tgt, speak_result=False)
+    result = pipeline.translate_audio(str(audio_path), src, tgt, speak_result=False)
     dt = round(time.perf_counter() - t0, 2)
     print(f"Repaired Source:  '{result['source_text']}'")
     print(f"Clean Translated: '{result['translated_text']}'")
