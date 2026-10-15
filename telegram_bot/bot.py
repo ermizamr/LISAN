@@ -53,6 +53,10 @@ from telegram_bot.supabase_client import (
     load_user_gamification,
     log_analytics_event,
     get_analytics_summary,
+    save_pending_edit,
+    get_latest_pending_edit,
+    clear_pending_edit,
+    get_user_stats,
 )
 
 # Set up logging
@@ -63,20 +67,42 @@ logger = logging.getLogger(__name__)
 
 # Cache of all 3,421 multi-way tuples
 CACHED_TUPLES = []
+TUPLE_MAP = {}
 
 
 def load_tuples():
-    """Loads all community tuples into memory for rapid serving."""
-    global CACHED_TUPLES
+    """Loads all community tuples into memory for rapid serving and stateless lookups."""
+    global CACHED_TUPLES, TUPLE_MAP
     if DATA_TUPLES_PATH.exists():
         try:
             with open(DATA_TUPLES_PATH, "r", encoding="utf-8") as f:
                 CACHED_TUPLES = json.load(f)
+                TUPLE_MAP = {str(t["id"]): t for t in CACHED_TUPLES}
                 logger.info(f"Loaded {len(CACHED_TUPLES):,} tuples for validation.")
         except Exception as e:
             logger.error(f"Error loading tuples: {e}")
             CACHED_TUPLES = []
+            TUPLE_MAP = {}
     return CACHED_TUPLES
+
+
+def get_tuple_by_id(tuple_id: str, lang: str = "amh") -> dict:
+    """Stateless retrieval of tuple content by ID and target language."""
+    global TUPLE_MAP, CACHED_TUPLES
+    if not TUPLE_MAP:
+        load_tuples()
+    t = TUPLE_MAP.get(str(tuple_id))
+    if not t:
+        return {}
+    translations = t.get("translations", {})
+    return {
+        "tuple": t,
+        "tuple_id": str(t.get("id")),
+        "lang": lang,
+        "domain": t.get("domain", "general"),
+        "english": translations.get("eng", t.get("english", "")),
+        "target": translations.get(lang, t.get(lang, "")),
+    }
 
 
 def get_user_tg_handle(user) -> str:
@@ -216,22 +242,73 @@ def make_card_text(item: dict) -> str:
 
 
 def make_card_keyboard(item: dict) -> InlineKeyboardMarkup:
-    """Builds inline action buttons for the validation card."""
+    """Builds stateless inline action buttons encoding language and tuple ID."""
+    lang = item.get("lang", "amh")
+    tid = item.get("tuple_id", "")
     buttons = [
         [
-            InlineKeyboardButton("👍 Good / ትክክል", callback_data=f"val_good_{item['lang']}"),
-            InlineKeyboardButton("👎 Bad / ስህተት", callback_data=f"val_bad_{item['lang']}"),
+            InlineKeyboardButton("👍 Good / ትክክል", callback_data=f"vg:{lang}:{tid}"),
+            InlineKeyboardButton("👎 Bad / ስህተት", callback_data=f"vb:{lang}:{tid}"),
         ],
         [
-            InlineKeyboardButton("✏️ Suggest Edit", callback_data=f"val_edit_{item['lang']}"),
-            InlineKeyboardButton("⏭️ Skip", callback_data=f"val_skip_{item['lang']}"),
+            InlineKeyboardButton("✏️ Suggest Edit", callback_data=f"ve:{lang}:{tid}"),
+            InlineKeyboardButton("⏭️ Skip", callback_data=f"vs:{lang}:{tid}"),
         ],
         [
-            InlineKeyboardButton("🌐 Switch Language", callback_data="val_lang_picker"),
+            InlineKeyboardButton("🌐 Change Language", callback_data="val_lang_picker"),
             InlineKeyboardButton("🏠 Main Menu", callback_data="menu_home"),
         ],
     ]
     return InlineKeyboardMarkup(buttons)
+
+
+def make_language_keyboard() -> InlineKeyboardMarkup:
+    """Builds language selection keyboard without any country flags."""
+    buttons = [
+        [
+            InlineKeyboardButton("አማርኛ (Amharic)", callback_data="pick_lang_amh"),
+            InlineKeyboardButton("Afaan Oromoo", callback_data="pick_lang_orm"),
+        ],
+        [
+            InlineKeyboardButton("ትግርኛ (Tigrinya)", callback_data="pick_lang_tir"),
+            InlineKeyboardButton("Soomaali (Somali)", callback_data="pick_lang_som"),
+        ],
+        [
+            InlineKeyboardButton("🔀 All Languages (Random)", callback_data="pick_lang_all"),
+        ],
+        [
+            InlineKeyboardButton("🏠 Main Menu", callback_data="menu_home"),
+        ],
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+
+async def send_language_picker(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Prompts the user to select the specific language they speak fluently."""
+    text = (
+        "🗣️ <b>Choose Your Language / ቋንቋ ይምረጡ</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "To ensure authentic, high-quality AI training data, please select the language you speak fluently.\n\n"
+        "The bot will serve sentences <b>strictly from this language</b> so you can review with confidence!"
+    )
+    reply_markup = make_language_keyboard()
+    if update.callback_query:
+        try:
+            await update.callback_query.answer()
+        except Exception:
+            pass
+        try:
+            await update.callback_query.edit_message_text(
+                text, parse_mode="HTML", reply_markup=reply_markup
+            )
+        except Exception:
+            await update.callback_query.message.reply_text(
+                text, parse_mode="HTML", reply_markup=reply_markup
+            )
+    else:
+        await update.message.reply_text(
+            text, parse_mode="HTML", reply_markup=reply_markup
+        )
 
 
 # ==========================================
@@ -295,22 +372,36 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def validate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Direct /validate command."""
-    await send_new_validation_card(update, context)
+    pref_lang = context.user_data.get("preferred_lang")
+    if pref_lang:
+        await send_new_validation_card(update, context, preferred_lang=pref_lang)
+    else:
+        await send_language_picker(update, context)
 
 
-async def send_new_validation_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Selects and renders a new validation card prioritizing unreviewed sentences."""
+async def send_new_validation_card(update: Update, context: ContextTypes.DEFAULT_TYPE, preferred_lang: str = None):
+    """Selects and renders a new validation card prioritizing unreviewed sentences in the chosen language."""
     user = update.effective_user
     uid = user.id if user else None
     tg_handle = get_user_tg_handle(user)
+
+    if preferred_lang is not None:
+        context.user_data["preferred_lang"] = preferred_lang if preferred_lang != "all" else None
+
     pref_lang = context.user_data.get("preferred_lang")
     item = get_candidate_sentence(user_id=uid, username=tg_handle, preferred_lang=pref_lang)
 
     if not item:
         msg = "⚠️ No sentences available in the library at this moment."
         if update.callback_query:
-            await update.callback_query.answer()
-            await update.callback_query.edit_message_text(msg)
+            try:
+                await update.callback_query.answer()
+            except Exception:
+                pass
+            try:
+                await update.callback_query.edit_message_text(msg)
+            except Exception:
+                await update.callback_query.message.reply_text(msg)
         else:
             await update.message.reply_text(msg)
         return
@@ -429,17 +520,9 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Displays top community contributors and personal score."""
     leaders = get_leaderboard(limit=5)
     user = update.effective_user
-    uid = str(user.id) if user else ""
+    uid = user.id if user else 0
     tg_handle = get_user_tg_handle(user)
-    all_stats = load_user_gamification()
-    my_stats = all_stats.get(uid)
-    if not my_stats:
-        for st in all_stats.values():
-            if st.get("username") == tg_handle:
-                my_stats = st
-                break
-    if not my_stats:
-        my_stats = {"points": 0, "rank": "🌱 Apprentice Linguist", "total_reviews": 0}
+    my_stats = get_user_stats(uid, tg_handle)
 
     text = (
         f"🏆 <b>LISAN Community Leaderboard</b>\n"
@@ -535,47 +618,105 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "menu_analytics":
         await analytics_command(update, context)
         return
-    elif data == "val_start":
-        await query.answer()
-        await send_new_validation_card(update, context)
+    elif data in ("val_start", "val_lang_picker"):
+        await send_language_picker(update, context)
         return
-    elif data == "val_lang_picker":
-        # Render language selection keyboard
-        buttons = [
-            [
-                InlineKeyboardButton("Amharic (አማርኛ)", callback_data="set_lang_amh"),
-                InlineKeyboardButton("Afaan Oromoo", callback_data="set_lang_orm"),
-            ],
-            [
-                InlineKeyboardButton("Tigrinya (ትግርኛ)", callback_data="set_lang_tir"),
-                InlineKeyboardButton("Somali (Soomaali)", callback_data="set_lang_som"),
-            ],
-            [
-                InlineKeyboardButton("All Languages (Random)", callback_data="set_lang_all"),
-            ],
-            [
-                InlineKeyboardButton("🔙 Back to Card", callback_data="val_start"),
-            ],
-        ]
-        await query.answer()
-        await query.edit_message_text(
-            "<b>Select which language you want to review:</b>",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(buttons),
-        )
-        return
-    elif data.startswith("set_lang_"):
-        lang = data.replace("set_lang_", "")
+    elif data.startswith("set_lang_") or data.startswith("pick_lang_"):
+        lang = data.replace("set_lang_", "").replace("pick_lang_", "")
         context.user_data["preferred_lang"] = None if lang == "all" else lang
         lang_title = "All Languages" if lang == "all" else LANGUAGES.get(lang, {}).get("name", lang)
         tg_handle = get_user_tg_handle(user)
         if user:
             log_analytics_event("lang_select", user.id, tg_handle, target_lang=lang)
         await query.answer(f"Selected: {lang_title}")
-        await send_new_validation_card(update, context)
+        await send_new_validation_card(update, context, preferred_lang=context.user_data["preferred_lang"])
         return
 
-    # Validation action callbacks
+    # Stateless validation action callbacks (survives Vercel serverless cold-starts)
+    if data.startswith("vg:") or data.startswith("vb:") or data.startswith("ve:") or data.startswith("vs:"):
+        parts = data.split(":")
+        action = parts[0]
+        lang = parts[1]
+        tid = parts[2] if len(parts) > 2 else ""
+
+        item = context.user_data.get("current_item")
+        if not item or str(item.get("tuple_id")) != str(tid):
+            item = get_tuple_by_id(tid, lang)
+
+        if not item:
+            await query.answer("Fetching next sentence...")
+            await send_new_validation_card(update, context, preferred_lang=None if lang == "all" else lang)
+            return
+
+        tg_handle = get_user_tg_handle(user)
+        reviewer_id = f"tg_{user.id}"
+
+        if action == "vg":
+            record_validation(
+                tuple_id=item["tuple_id"],
+                domain=item["domain"],
+                english_text=item["english"],
+                target_lang=item["lang"],
+                original_target=item["target"],
+                validated_text=item["target"],
+                status="approved",
+                reviewer_id=reviewer_id,
+                tg_username=tg_handle,
+                notes=f"Approved via Telegram Bot by {tg_handle}",
+            )
+            profile = update_user_score(user.id, tg_handle, "approved")
+            await query.answer(f"✓ Approved! +10 XP (Total: {profile['points']} XP)")
+            await send_new_validation_card(update, context, preferred_lang=None if lang == "all" else lang)
+            return
+
+        elif action == "vb":
+            record_validation(
+                tuple_id=item["tuple_id"],
+                domain=item["domain"],
+                english_text=item["english"],
+                target_lang=item["lang"],
+                original_target=item["target"],
+                validated_text=None,
+                status="rejected",
+                reviewer_id=reviewer_id,
+                tg_username=tg_handle,
+                notes=f"Rejected via Telegram Bot by {tg_handle}",
+            )
+            profile = update_user_score(user.id, tg_handle, "rejected")
+            await query.answer(f"✓ Flagged & Quarantined! +10 XP (Total: {profile['points']} XP)")
+            await send_new_validation_card(update, context, preferred_lang=None if lang == "all" else lang)
+            return
+
+        elif action == "vs":
+            if user:
+                log_analytics_event("card_skip", user.id, tg_handle, target_lang=item["lang"])
+            await query.answer("Skipped")
+            await send_new_validation_card(update, context, preferred_lang=None if lang == "all" else lang)
+            return
+
+        elif action == "ve":
+            context.user_data["awaiting_edit"] = True
+            context.user_data["current_item"] = item
+            context.user_data["preferred_lang"] = lang
+            save_pending_edit(user.id, tg_handle, tid, lang)
+
+            lang_name = LANGUAGES.get(item["lang"], {}).get("name", item["lang"])
+            english_esc = html.escape(str(item["english"]))
+            target_esc = html.escape(str(item["target"]))
+            await query.answer("Awaiting your edit...")
+            await query.edit_message_text(
+                f"✏️ <b>Suggest a Correction for {html.escape(lang_name)}</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"<b>English</b>:\n<code>{english_esc}</code>\n\n"
+                f"<b>Current draft</b>:\n<code>{target_esc}</code>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"👇 <b>Please type and send the correct translation as a reply message:</b>\n"
+                f"<i>(Or type /cancel to go back)</i>",
+                parse_mode="HTML",
+            )
+            return
+
+    # Fallback for legacy callbacks if an older card was active
     item = context.user_data.get("current_item")
     if not item:
         await query.answer("Loading new sentence...")
@@ -586,7 +727,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reviewer_id = f"tg_{user.id}"
 
     if data.startswith("val_good_"):
-        # Record APPROVED in Supabase
         record_validation(
             tuple_id=item["tuple_id"],
             domain=item["domain"],
@@ -597,13 +737,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status="approved",
             reviewer_id=reviewer_id,
             tg_username=tg_handle,
+            notes=f"Approved via Telegram Bot by {tg_handle}",
         )
         profile = update_user_score(user.id, tg_handle, "approved")
         await query.answer(f"✓ Approved! +10 XP (Total: {profile['points']} XP)")
-        await send_new_validation_card(update, context)
+        await send_new_validation_card(update, context, preferred_lang=item.get("lang"))
 
     elif data.startswith("val_bad_"):
-        # Record REJECTED in Supabase
         record_validation(
             tuple_id=item["tuple_id"],
             domain=item["domain"],
@@ -614,19 +754,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status="rejected",
             reviewer_id=reviewer_id,
             tg_username=tg_handle,
+            notes=f"Rejected via Telegram Bot by {tg_handle}",
         )
         profile = update_user_score(user.id, tg_handle, "rejected")
         await query.answer(f"✓ Rejected & Quarantined! +10 XP (Total: {profile['points']} XP)")
-        await send_new_validation_card(update, context)
+        await send_new_validation_card(update, context, preferred_lang=item.get("lang"))
 
     elif data.startswith("val_skip_"):
         if user and item:
             log_analytics_event("card_skip", user.id, tg_handle, target_lang=item["lang"])
         await query.answer("Skipped")
-        await send_new_validation_card(update, context)
+        await send_new_validation_card(update, context, preferred_lang=item.get("lang"))
 
     elif data.startswith("val_edit_"):
         context.user_data["awaiting_edit"] = True
+        save_pending_edit(user.id, tg_handle, item["tuple_id"], item["lang"])
         lang_name = LANGUAGES.get(item["lang"], {}).get("name", item["lang"])
         english_esc = html.escape(str(item["english"]))
         target_esc = html.escape(str(item["target"]))
@@ -635,7 +777,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✏️ <b>Suggest a Correction for {html.escape(lang_name)}</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"<b>English</b>:\n<code>{english_esc}</code>\n\n"
-            f"Current draft:\n<code>{target_esc}</code>\n"
+            f"<b>Current draft</b>:\n<code>{target_esc}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"👇 <b>Please type and send the correct translation as a reply message:</b>\n"
             f"<i>(Or type /cancel to go back)</i>",
@@ -668,40 +810,55 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text.lower() == "/cancel":
         context.user_data["awaiting_edit"] = False
         context.user_data["awaiting_translation"] = False
+        if user:
+            clear_pending_edit(user.id)
         await start_command(update, context)
         return
 
     # Check if user is submitting an edit
-    if context.user_data.get("awaiting_edit"):
-        item = context.user_data.get("current_item")
-        if item:
-            tg_handle = get_user_tg_handle(user)
-            reviewer_id = f"tg_{user.id}"
+    is_awaiting = context.user_data.get("awaiting_edit", False)
+    item = context.user_data.get("current_item")
 
-            # Save human edit to Supabase
-            record_validation(
-                tuple_id=item["tuple_id"],
-                domain=item["domain"],
-                english_text=item["english"],
-                target_lang=item["lang"],
-                original_target=item["target"],
-                validated_text=text,
-                status="edited",
-                reviewer_id=reviewer_id,
-                tg_username=tg_handle,
-                notes=f"Community edit submitted by {tg_handle} ({user.id})",
-            )
-            profile = update_user_score(user.id, tg_handle, "edited")
-            context.user_data["awaiting_edit"] = False
+    # Durable fallback: if serverless cold-start emptied memory, check Supabase pending edit
+    if not item and user:
+        pending = get_latest_pending_edit(user.id)
+        if pending:
+            tid = pending.get("tuple_id")
+            plang = pending.get("target_lang", "amh")
+            item = get_tuple_by_id(tid, plang)
+            is_awaiting = True
 
-            await update.message.reply_text(
-                f"🎉 <b>Thank you! Your correction has been recorded for the AI training set!</b>\n"
-                f"🌟 <b>+30 XP earned!</b> (Total: <code>{profile['points']} XP</code> — {html.escape(profile['rank'])})\n\n"
-                f"Here is your next sentence:",
-                parse_mode="HTML",
-            )
-            await send_new_validation_card(update, context)
-            return
+    if is_awaiting and item:
+        tg_handle = get_user_tg_handle(user)
+        reviewer_id = f"tg_{user.id}"
+        edit_lang = item.get("lang", "amh")
+
+        # Save human edit to Supabase
+        record_validation(
+            tuple_id=item["tuple_id"],
+            domain=item["domain"],
+            english_text=item["english"],
+            target_lang=edit_lang,
+            original_target=item["target"],
+            validated_text=text,
+            status="edited",
+            reviewer_id=reviewer_id,
+            tg_username=tg_handle,
+            notes=f"Community edit submitted by {tg_handle} ({user.id})",
+        )
+        if user:
+            clear_pending_edit(user.id)
+        profile = update_user_score(user.id, tg_handle, "edited")
+        context.user_data["awaiting_edit"] = False
+
+        await update.message.reply_text(
+            f"🎉 <b>Thank you! Your correction has been recorded for the AI training set!</b>\n"
+            f"🌟 <b>+30 XP earned!</b> (Total: <code>{profile['points']} XP</code> — {html.escape(profile['rank'])})\n\n"
+            f"Here is your next sentence:",
+            parse_mode="HTML",
+        )
+        await send_new_validation_card(update, context, preferred_lang=edit_lang)
+        return
 
     # Direct translation / phrasebook lookup
     matched = search_phrasebook(text)

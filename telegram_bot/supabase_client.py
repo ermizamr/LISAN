@@ -95,6 +95,62 @@ def log_analytics_event(
         return False
 
 
+def save_pending_edit(user_id: int, tg_handle: str, tuple_id: str, target_lang: str) -> bool:
+    """Saves a pending edit state in Supabase so serverless invocations survive cold starts."""
+    endpoint = f"{SUPABASE_URL}/rest/v1/community_validations"
+    payload = {
+        "tuple_id": str(tuple_id),
+        "domain": "pending_edit",
+        "english_text": f"pending_edit:{tuple_id}",
+        "target_lang": str(target_lang),
+        "original_target": "pending",
+        "validated_text": "[AWAITING_USER_INPUT]",
+        "status": "pending_edit",
+        "reviewer_note": f"tg:{tg_handle} | id:tg_{user_id}",
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(endpoint, data=data, headers=HEADERS, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=4) as response:
+            return response.status in (200, 201)
+    except Exception as e:
+        print(f"[Supabase Error] Failed to save pending edit: {e}")
+        return False
+
+
+def get_latest_pending_edit(user_id: int) -> Optional[dict]:
+    """Retrieves the user's most recent pending edit if one is active."""
+    endpoint = f"{SUPABASE_URL}/rest/v1/community_validations?status=eq.pending_edit&reviewer_note=like.*id:tg_{user_id}*&order=created_at.desc&limit=1"
+    req = urllib.request.Request(
+        endpoint,
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=4) as response:
+            rows = json.loads(response.read().decode("utf-8"))
+            if rows:
+                return rows[0]
+    except Exception as e:
+        print(f"[Supabase Error] Failed to get pending edit: {e}")
+    return None
+
+
+def clear_pending_edit(user_id: int) -> bool:
+    """Removes or marks pending edit as resolved."""
+    endpoint = f"{SUPABASE_URL}/rest/v1/community_validations?status=eq.pending_edit&reviewer_note=like.*id:tg_{user_id}*"
+    req = urllib.request.Request(
+        endpoint,
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+        method="DELETE",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=4) as response:
+            return response.status in (200, 204)
+    except Exception as e:
+        print(f"[Supabase Error] Failed to clear pending edit: {e}")
+        return False
+
+
 def get_analytics_summary() -> dict:
     """Computes comprehensive live community analytics and telemetry from Supabase."""
     endpoint = f"{SUPABASE_URL}/rest/v1/community_validations?select=tuple_id,target_lang,status,reviewer_note,created_at"
@@ -121,17 +177,19 @@ def get_analytics_summary() -> dict:
                 if l in lang_counts:
                     lang_counts[l] += 1
 
-            # Unique contributors
+            # Unique active community contributors across all events and reviews
             contributors = set()
-            for r in validations:
+            for r in rows:
                 note = str(r.get("reviewer_note") or "")
-                if "tg:@" in note:
-                    u = note.split("tg:@")[1].split()[0].split("|")[0].strip()
-                    contributors.add(f"@{u}")
-                elif "tg:" in note:
-                    u = note.split("|")[0].replace("tg:", "").strip()
-                    if u and not u.startswith("tg_"):
-                        contributors.add(u if u.startswith("@") else f"@{u}")
+                handles = re.findall(r"@([a-zA-Z0-9_]{3,32})", note)
+                for h in handles:
+                    if not h.startswith("test") and not h.startswith("anonymous"):
+                        contributors.add(f"@{h}")
+                uids = re.findall(r"id:tg_(\d+)", note)
+                for u in uids:
+                    if u not in ("123", "999"):
+                        if not any(not h.startswith("test") and not h.startswith("anonymous") for h in handles):
+                            contributors.add(f"@user_{u}")
 
             # Bot sessions started
             bot_starts = sum(1 for e in events if e.get("status") == "event:bot_start")
@@ -431,3 +489,75 @@ def get_leaderboard(limit: int = 5) -> list:
 
     sorted_users = sorted(user_map.values(), key=lambda x: x["points"], reverse=True)
     return sorted_users[:limit]
+
+
+def get_user_stats(user_id: int, username: str = "") -> dict:
+    """Computes contributor XP, total validations, and tier rank directly from Supabase."""
+    clean_handle = username if username.startswith("@") else (f"@{username}" if username else "")
+    user_tag = f"id:tg_{user_id}"
+
+    endpoint = f"{SUPABASE_URL}/rest/v1/community_validations?select=status,reviewer_note"
+    req = urllib.request.Request(
+        endpoint,
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+    )
+    points = 0
+    approved_count = 0
+    rejected_count = 0
+    edited_count = 0
+    total_reviews = 0
+
+    try:
+        with urllib.request.urlopen(req, timeout=4) as response:
+            rows = json.loads(response.read().decode("utf-8"))
+            for r in rows:
+                status = r.get("status")
+                note = str(r.get("reviewer_note") or "")
+                is_user = False
+                if user_tag and user_tag in note:
+                    is_user = True
+                elif clean_handle and clean_handle in note:
+                    is_user = True
+
+                if is_user and status in ("approved", "rejected", "edited"):
+                    total_reviews += 1
+                    if status == "approved":
+                        points += 10
+                        approved_count += 1
+                    elif status == "rejected":
+                        points += 10
+                        rejected_count += 1
+                    elif status == "edited":
+                        points += 30
+                        edited_count += 1
+    except Exception as e:
+        print(f"[Supabase Error] get_user_stats fetch error: {e}")
+
+    # Local fallback check
+    local_stats = load_user_gamification().get(str(user_id), {})
+    if local_stats.get("points", 0) > points:
+        points = local_stats["points"]
+        total_reviews = max(total_reviews, local_stats.get("total_reviews", 0))
+
+    if points >= 500:
+        rank = "👑 Horn AI Mastermind"
+    elif points >= 250:
+        rank = "🥇 Gold Lexicographer"
+    elif points >= 100:
+        rank = "🥈 Silver Contributor"
+    elif points >= 30:
+        rank = "🥉 Bronze Validator"
+    else:
+        rank = "🌱 Apprentice Linguist"
+
+    return {
+        "user_id": user_id,
+        "username": clean_handle or f"@user_{user_id}",
+        "points": points,
+        "approved_count": approved_count,
+        "rejected_count": rejected_count,
+        "edited_count": edited_count,
+        "total_reviews": total_reviews,
+        "rank": rank,
+    }
+
