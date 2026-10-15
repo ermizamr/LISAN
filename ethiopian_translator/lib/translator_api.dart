@@ -11,17 +11,20 @@ class TranslatorApi {
   Uri baseUri;
   final http.Client _client;
 
+  static const String _envApiUrl = String.fromEnvironment('LISAN_API_URL', defaultValue: '');
+
   static final List<Uri> candidateBaseUris = [
+    if (_envApiUrl.isNotEmpty) Uri.parse(_envApiUrl),
     Uri.parse('http://127.0.0.1:8000'),
-    Uri.parse('http://192.168.1.3:8000'),
     Uri.parse('http://10.0.2.2:8000'),
+    Uri.parse('http://192.168.1.3:8000'),
   ];
 
   Future<bool> isReady() async {
     final urisToTry = [baseUri, ...candidateBaseUris.where((u) => u != baseUri)];
     for (final candidate in urisToTry) {
       try {
-        final response = await _client.get(candidate.resolve('/health')).timeout(const Duration(seconds: 3));
+        final response = await _client.get(candidate.resolve('/health')).timeout(const Duration(milliseconds: 1200));
         if (response.statusCode == 200) {
           final body = jsonDecode(response.body) as Map<String, dynamic>;
           if (body['ready'] == true) {

@@ -32,7 +32,7 @@ class OfflineNllbTranslator {
   static const int _bosTokenId = 0; // <s>
   static const int _eosTokenId = 2; // </s>
   static const int _padTokenId = 1; // <pad>
-  static const int _maxNewTokens = 24;
+  static const int _maxNewTokens = 64;
 
   final OfflineNllbTokenizer _tokenizer = OfflineNllbTokenizer();
 

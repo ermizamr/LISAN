@@ -29,7 +29,7 @@ class OfflineSttService {
   static const _modelAsset = 'assets/models/ethio_stt/model_quantized.onnx';
   static const _vocabAsset = 'assets/models/ethio_stt/vocab.json';
   static const _sampleRate = 16000;
-  static const _padTokenId = 408;
+  int _padTokenId = 408;
 
   OrtSession? _session;
   List<String>? _vocabulary;
@@ -84,6 +84,11 @@ class OfflineSttService {
         vocabJson = await rootBundle.loadString(_vocabAsset);
       }
       final vocab = (jsonDecode(vocabJson) as Map<String, dynamic>);
+      _padTokenId = (vocab['[PAD]'] ??
+              vocab['<pad>'] ??
+              vocab['<blank>'] ??
+              vocab['[pad]'] ??
+              408) as int;
       final maxId = vocab.values.cast<int>().reduce(math.max);
       _vocabulary = List<String>.filled(maxId + 1, '');
       for (final entry in vocab.entries) {

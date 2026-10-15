@@ -595,10 +595,6 @@ class OfflineTranslationMemory {
       res = res.replaceAll(RegExp(r"^you(?:'re| are) (?:at |the )?peace\.?$", caseSensitive: false), 'How are you?');
       res = res.replaceAll(RegExp(r"\bhow did you pass the night\b", caseSensitive: false), 'good morning');
       res = res.replaceAll(RegExp(r"\bhow did you spend the day\b", caseSensitive: false), 'good afternoon');
-      res = res.replaceAll(RegExp(r"^what do you teach\??$", caseSensitive: false), 'Where does it hurt you?');
-      res = res.replaceAll(RegExp(r"^what is your religion\??$", caseSensitive: false), 'Where does it hurt you?');
-      res = res.replaceAll(RegExp(r"^he was a good doctor\.?$", caseSensitive: false), 'I will prescribe you medicine.');
-      res = res.replaceAll(RegExp(r"^you've been given medication\.?$", caseSensitive: false), 'I will prescribe you medicine.');
       res = res.replaceAll(RegExp(r"^i(?:'m| am) fine(?:,)? you are\??$", caseSensitive: false), "I'm fine, how are you?");
       res = res.replaceAll(RegExp(r"^i(?:'m| am) fine(?:,)? and you are\??$", caseSensitive: false), "I'm fine, how are you?");
       res = res.replaceAll(RegExp(r"^i was rej?jected.*", caseSensitive: false), "I am fine, and you?");
@@ -607,8 +603,6 @@ class OfflineTranslationMemory {
     } else if (targetLang == 'orm') {
       res = res.replaceAll(RegExp(r"\byeroo hafuuraa keessatti nagaa argadhaa\??$", caseSensitive: false), 'Akkam jirta?');
       res = res.replaceAll(RegExp(r"^nagaa argadhaa\??$", caseSensitive: false), 'Akkam jirta?');
-      res = res.replaceAll(RegExp(r"^amantiin kee maali\??$", caseSensitive: false), 'Bakka kamtu si dhukkuba?');
-      res = res.replaceAll(RegExp(r"^doktora gaarii ture\.?$", caseSensitive: false), 'Qoricha siif ajaja.');
       res = res.replaceAll(RegExp(r"^suurri akkamitti (?:dhumate|dhume)\??$", caseSensitive: false), 'Akkam jirta, nagaa qabdaa?');
       res = res.replaceAll(RegExp(r"^salaam\??$", caseSensitive: false), 'Akkam');
     } else if (targetLang == 'amh') {
@@ -618,20 +612,14 @@ class OfflineTranslationMemory {
       res = res.replaceAll('አዲስአበባ', 'አዲስ አበባ');
       res = res.replaceAll(RegExp(r"\bሰላማዊ መሆን የምትችለው እንዴት ነው\??"), 'እንዴት ነህ፣ ደህና ነህ?');
       res = res.replaceAll(RegExp(r"^አንተም ሰላም ታገኛለህ[።.]?$"), 'እንዴት ነህ፣ ደህና ነህ?');
-      res = res.replaceAll(RegExp(r"^እምነትህ ምንድን ነው\??$"), 'የት አካባቢ ያመዎታል?');
-      res = res.replaceAll(RegExp(r"^ጥሩ ዶክተር ነበር[።.]?$"), 'መድኃኒት አዝልሃለሁ።');
       res = res.replaceAll(RegExp(r"^ስዕሉ እንዴት (?:አለቀ|ተጠናቀቀ)\??$", caseSensitive: false), 'ሰላም፣ እንዴት ነህ? ደህና ነህ?');
     } else if (targetLang == 'tir') {
       res = res.replaceAll(RegExp(r"^ሰላም ረኺብካ ዲኻ\??$"), 'ሰላም ከመይ ኣለኻ?');
       res = res.replaceAll(RegExp(r"^ሰላም ትረክብ ኢኻ[።.]?$"), 'ሰላም ከመይ ኣለኻ?');
-      res = res.replaceAll(RegExp(r"^እምነትካ እንታይ እዩ\??$"), 'ኣበይ የሕምመካ ኣሎ?');
-      res = res.replaceAll(RegExp(r"^ጽቡቕ ሓኪም ነይሩ[።.]?$"), 'መድሃኒት ክእዝዘልካ እየ።');
       res = res.replaceAll(RegExp(r"^ስእሊ ብኸመይ (?:ተወዲኡ|ተዛዚሙ)\??$", caseSensitive: false), 'ሰላም ከመይ ኣለኻ፡ ድሓን ዲኻ?');
     } else if (targetLang == 'som') {
       res = res.replaceAll(RegExp(r"^goormaad nabad heshay\??$", caseSensitive: false), 'Sidee tahay?');
       res = res.replaceAll(RegExp(r"^nabad gelyo miyaad heshay\??$", caseSensitive: false), 'Sidee tahay?');
-      res = res.replaceAll(RegExp(r"^diintaadu waa maxay\??$", caseSensitive: false), 'Xaggee ku xanuunaysaa?');
-      res = res.replaceAll(RegExp(r"^dhakhtar fiican buu ahaa\.?$", caseSensitive: false), 'Daawaan kuu qorayaa.');
       res = res.replaceAll(RegExp(r"^sawirku sidee buu ku (?:dhammaaday|dhamaaday)\??$", caseSensitive: false), 'Sidee tahay, ma fiican tahay?');
       res = res.replaceAll(RegExp(r"^salaam\??$", caseSensitive: false), 'Sidee tahay');
     }
