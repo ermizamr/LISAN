@@ -36,6 +36,8 @@ onnx_models/
 
 # Heavy raw datasets (>100MB) and SQLite temporary journals
 data/raw_bitext/
+data/massive_dataset/*.jsonl
+data/training_data/*.jsonl
 data/*.db-shm
 data/*.db-wal
 
