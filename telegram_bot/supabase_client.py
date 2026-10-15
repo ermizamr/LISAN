@@ -42,7 +42,7 @@ def record_validation(
         "english_text": str(english_text),
         "target_lang": str(target_lang),
         "original_target": str(original_target),
-        "validated_text": str(validated_text) if validated_text else None,
+        "validated_text": str(validated_text) if validated_text is not None else "[FLAGGED/REJECTED]",
         "status": str(status),
         "reviewer_note": full_note,
     }
@@ -56,6 +56,127 @@ def record_validation(
     except Exception as e:
         print(f"[Supabase Error] Failed to write validation: {e}")
         return False
+
+
+def log_analytics_event(
+    event_type: str,
+    user_id: int = None,
+    username: str = "",
+    target_lang: str = "all",
+    details: str = "",
+) -> bool:
+    """Logs a lightweight telemetry event into Supabase for live community analytics."""
+    endpoint = f"{SUPABASE_URL}/rest/v1/community_validations"
+    clean_handle = username if username.startswith("@") else (f"@{username}" if username else (f"@user_{user_id}" if user_id else "@anonymous"))
+    notes = f"event:{event_type} | tg:{clean_handle}"
+    if user_id:
+        notes += f" | id:tg_{user_id}"
+    if details:
+        notes += f" | {details}"
+
+    payload = {
+        "tuple_id": "telemetry_event",
+        "domain": "system",
+        "english_text": f"Event: {event_type}",
+        "target_lang": str(target_lang),
+        "original_target": "system",
+        "validated_text": f"event_{event_type}",
+        "status": f"event:{event_type}",
+        "reviewer_note": notes,
+    }
+
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(endpoint, data=data, headers=HEADERS, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=3) as response:
+            return response.status in (200, 201)
+    except Exception as e:
+        print(f"[Supabase Telemetry Error] {e}")
+        return False
+
+
+def get_analytics_summary() -> dict:
+    """Computes comprehensive live community analytics and telemetry from Supabase."""
+    endpoint = f"{SUPABASE_URL}/rest/v1/community_validations?select=tuple_id,target_lang,status,reviewer_note,created_at"
+    req = urllib.request.Request(
+        endpoint,
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as response:
+            rows = json.loads(response.read().decode("utf-8"))
+
+            validations = [r for r in rows if r.get("status") in ("approved", "edited", "rejected")]
+            events = [r for r in rows if str(r.get("status", "")).startswith("event:")]
+
+            total_reviews = len(validations)
+            approved = sum(1 for r in validations if r.get("status") in ("approved", "edited"))
+            rejected = sum(1 for r in validations if r.get("status") == "rejected")
+            edited = sum(1 for r in validations if r.get("status") == "edited")
+
+            # Language breakdown
+            lang_counts = {"amh": 0, "orm": 0, "tir": 0, "som": 0}
+            for r in validations:
+                l = r.get("target_lang")
+                if l in lang_counts:
+                    lang_counts[l] += 1
+
+            # Unique contributors
+            contributors = set()
+            for r in validations:
+                note = str(r.get("reviewer_note") or "")
+                if "tg:@" in note:
+                    u = note.split("tg:@")[1].split()[0].split("|")[0].strip()
+                    contributors.add(f"@{u}")
+                elif "tg:" in note:
+                    u = note.split("|")[0].replace("tg:", "").strip()
+                    if u and not u.startswith("tg_"):
+                        contributors.add(u if u.startswith("@") else f"@{u}")
+
+            # Bot sessions started
+            bot_starts = sum(1 for e in events if e.get("status") == "event:bot_start")
+
+            # 24h review velocity
+            from datetime import datetime, timezone, timedelta
+            reviews_24h = 0
+            now = datetime.now(timezone.utc)
+            cutoff = now - timedelta(hours=24)
+            for r in validations:
+                cat = r.get("created_at")
+                if cat:
+                    try:
+                        dt = datetime.fromisoformat(cat.replace("Z", "+00:00"))
+                        if dt >= cutoff:
+                            reviews_24h += 1
+                    except Exception:
+                        pass
+
+            approval_rate = round((approved / total_reviews * 100), 1) if total_reviews > 0 else 0.0
+
+            return {
+                "total_reviews": total_reviews,
+                "approved": approved,
+                "rejected": rejected,
+                "edited": edited,
+                "lang_counts": lang_counts,
+                "unique_contributors": len(contributors),
+                "bot_starts": bot_starts,
+                "reviews_24h": reviews_24h,
+                "approval_rate": approval_rate,
+            }
+    except Exception as e:
+        print(f"[Supabase Error] Failed to get analytics summary: {e}")
+        return {
+            "total_reviews": 0,
+            "approved": 0,
+            "rejected": 0,
+            "edited": 0,
+            "lang_counts": {"amh": 0, "orm": 0, "tir": 0, "som": 0},
+            "unique_contributors": 0,
+            "bot_starts": 0,
+            "reviews_24h": 0,
+            "approval_rate": 0.0,
+        }
 
 
 def get_tuple_scores() -> dict:
@@ -113,16 +234,17 @@ def get_global_stats() -> dict:
     try:
         with urllib.request.urlopen(req, timeout=5) as response:
             rows = json.loads(response.read().decode("utf-8"))
-            total = len(rows)
-            approved = sum(1 for r in rows if r.get("status") in ("approved", "edited"))
-            rejected = sum(1 for r in rows if r.get("status") == "rejected")
-            edited = sum(1 for r in rows if r.get("status") == "edited")
+            validations = [r for r in rows if r.get("status") in ("approved", "edited", "rejected")]
+            total = len(validations)
+            approved = sum(1 for r in validations if r.get("status") in ("approved", "edited"))
+            rejected = sum(1 for r in validations if r.get("status") == "rejected")
+            edited = sum(1 for r in validations if r.get("status") == "edited")
 
             # Track unique tuple coverage and consensus
             tuple_approvals = {}
-            for r in rows:
+            for r in validations:
                 tid = r.get("tuple_id")
-                if tid and r.get("status") in ("approved", "edited"):
+                if tid and tid != "telemetry_event" and r.get("status") in ("approved", "edited"):
                     tuple_approvals[tid] = tuple_approvals.get(tid, 0) + 1
 
             unique_validated = len(tuple_approvals)

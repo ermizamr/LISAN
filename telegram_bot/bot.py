@@ -51,6 +51,8 @@ from telegram_bot.supabase_client import (
     update_user_score,
     get_leaderboard,
     load_user_gamification,
+    log_analytics_event,
+    get_analytics_summary,
 )
 
 # Set up logging
@@ -239,6 +241,10 @@ def make_card_keyboard(item: dict) -> InlineKeyboardMarkup:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends the welcoming main menu."""
     user = update.effective_user
+    tg_handle = get_user_tg_handle(user)
+    if user:
+        log_analytics_event("bot_start", user.id, tg_handle)
+
     first_name_esc = html.escape(user.first_name if user else "Friend")
     welcome_text = (
         f"👋 <b>Selam, {first_name_esc}!</b>\n\n"
@@ -262,6 +268,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton("📊 Dataset Stats", callback_data="menu_stats"),
+            InlineKeyboardButton("📈 Live Analytics", callback_data="menu_analytics"),
+        ],
+        [
             InlineKeyboardButton("ℹ️ About & Open Source", callback_data="menu_about"),
         ],
     ]
@@ -352,7 +361,10 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f'🔗 <b>Live Hub</b>: <a href="https://lisan.ermizamr.tech/validate.html">lisan.ermizamr.tech</a>'
     )
 
-    keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_home")]]
+    keyboard = [
+        [InlineKeyboardButton("📈 Community Analytics", callback_data="menu_analytics")],
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_home")],
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     if update.callback_query:
@@ -363,6 +375,53 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(
             text, parse_mode="HTML", reply_markup=reply_markup, disable_web_page_preview=True
+        )
+
+
+async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Displays live community engagement analytics and distribution."""
+    summary = get_analytics_summary()
+    total_rev = summary["total_reviews"]
+    lang_c = summary["lang_counts"]
+
+    amh_pct = round((lang_c["amh"] / total_rev * 100), 1) if total_rev else 0.0
+    orm_pct = round((lang_c["orm"] / total_rev * 100), 1) if total_rev else 0.0
+    tir_pct = round((lang_c["tir"] / total_rev * 100), 1) if total_rev else 0.0
+    som_pct = round((lang_c["som"] / total_rev * 100), 1) if total_rev else 0.0
+
+    text = (
+        f"📈 <b>LISAN Live Community Analytics</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👥 <b>Active Contributors</b>: <code>{summary['unique_contributors']:,}</code>\n"
+        f"🤖 <b>Bot Sessions Started</b>: <code>{summary['bot_starts']:,}</code>\n"
+        f"⚡ <b>24-Hour Velocity</b>: <code>+{summary['reviews_24h']:,} reviews</code>\n"
+        f"🎯 <b>Quality Approval Rate</b>: <code>{summary['approval_rate']}%</code>\n\n"
+        f"🗣️ <b>Language Activity Distribution</b>:\n"
+        f"• <b>Amharic</b> (አማርኛ): <code>{lang_c['amh']:,}</code> ({amh_pct}%)\n"
+        f"• <b>Afaan Oromoo</b>: <code>{lang_c['orm']:,}</code> ({orm_pct}%)\n"
+        f"• <b>Tigrinya</b> (ትግርኛ): <code>{lang_c['tir']:,}</code> ({tir_pct}%)\n"
+        f"• <b>Somali</b> (Soomaali): <code>{lang_c['som']:,}</code> ({som_pct}%)\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 <b>Reviews Breakdown</b>: <code>{total_rev:,} total</code>\n"
+        f"• Approved: <code>{summary['approved']:,}</code>\n"
+        f"• Human Corrections: <code>{summary['edited']:,}</code>\n"
+        f"• Flagged / Quarantined: <code>{summary['rejected']:,}</code>\n"
+    )
+
+    keyboard = [
+        [InlineKeyboardButton("📊 Corpus Scorecard", callback_data="menu_stats")],
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_home")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(
+            text, parse_mode="HTML", reply_markup=reply_markup
+        )
+    else:
+        await update.message.reply_text(
+            text, parse_mode="HTML", reply_markup=reply_markup
         )
 
 
@@ -473,6 +532,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "menu_about":
         await about_command(update, context)
         return
+    elif data == "menu_analytics":
+        await analytics_command(update, context)
+        return
     elif data == "val_start":
         await query.answer()
         await send_new_validation_card(update, context)
@@ -506,6 +568,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lang = data.replace("set_lang_", "")
         context.user_data["preferred_lang"] = None if lang == "all" else lang
         lang_title = "All Languages" if lang == "all" else LANGUAGES.get(lang, {}).get("name", lang)
+        tg_handle = get_user_tg_handle(user)
+        if user:
+            log_analytics_event("lang_select", user.id, tg_handle, target_lang=lang)
         await query.answer(f"Selected: {lang_title}")
         await send_new_validation_card(update, context)
         return
@@ -555,6 +620,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_new_validation_card(update, context)
 
     elif data.startswith("val_skip_"):
+        if user and item:
+            log_analytics_event("card_skip", user.id, tg_handle, target_lang=item["lang"])
         await query.answer("Skipped")
         await send_new_validation_card(update, context)
 
@@ -724,6 +791,7 @@ def create_bot_application():
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("leaderboard", leaderboard_command))
     app.add_handler(CommandHandler("about", about_command))
+    app.add_handler(CommandHandler("analytics", analytics_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
