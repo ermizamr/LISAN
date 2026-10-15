@@ -20,6 +20,8 @@ import json
 import argparse
 from pathlib import Path
 
+ROOT_DIR = Path(__file__).resolve().parent.parent
+
 def train(args):
     import torch
     from transformers import (
@@ -140,8 +142,8 @@ def train(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fine-tune NLLB-200 with LoRA on Ethiopian languages.")
     parser.add_argument("--model_name", type=str, default="facebook/nllb-200-distilled-600M")
-    parser.add_argument("--train_file", type=str, default=str(ROOT_DIR / "data" / "gold_dataset" / "train_expanded.jsonl"))
-    parser.add_argument("--val_file", type=str, default=str(ROOT_DIR / "data" / "gold_dataset" / "val_expanded.jsonl"))
+    parser.add_argument("--train_file", type=str, default=str(ROOT_DIR / "data" / "massive_dataset" / "train.jsonl"))
+    parser.add_argument("--val_file", type=str, default=str(ROOT_DIR / "data" / "massive_dataset" / "val.jsonl"))
     parser.add_argument("--output_dir", type=str, default=str(ROOT_DIR / "fine_tuned_nllb"))
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=8)
