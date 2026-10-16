@@ -283,30 +283,63 @@ def get_tuple_scores() -> dict:
 
 
 def get_global_stats() -> dict:
-    """Fetches total review counts, unique corpus coverage, and gold-verified count from Supabase."""
+    """Fetches total review counts, unique corpus coverage, per-language progress, and percentage growth to 100%."""
     endpoint = f"{SUPABASE_URL}/rest/v1/community_validations?select=tuple_id,target_lang,status"
     req = urllib.request.Request(
         endpoint,
         headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
     )
+    TOTAL_SENTENCES = 13684  # 3,421 concepts * 4 languages
+    TOTAL_CONCEPTS = 3421
+
     try:
         with urllib.request.urlopen(req, timeout=5) as response:
             rows = json.loads(response.read().decode("utf-8"))
-            validations = [r for r in rows if r.get("status") in ("approved", "edited", "rejected")]
+            validations = [r for r in rows if r.get("status") in ("approved", "edited", "rejected") and r.get("tuple_id") != "telemetry_event"]
             total = len(validations)
             approved = sum(1 for r in validations if r.get("status") in ("approved", "edited"))
             rejected = sum(1 for r in validations if r.get("status") == "rejected")
             edited = sum(1 for r in validations if r.get("status") == "edited")
 
-            # Track unique tuple coverage and consensus
+            # Track unique tuple coverage and per-language completion
+            lang_unique = {"amh": set(), "orm": set(), "tir": set(), "som": set()}
             tuple_approvals = {}
             for r in validations:
-                tid = r.get("tuple_id")
-                if tid and tid != "telemetry_event" and r.get("status") in ("approved", "edited"):
+                lang = r.get("target_lang")
+                tid = str(r.get("tuple_id"))
+                if lang in lang_unique and tid:
+                    lang_unique[lang].add(tid)
+                if r.get("status") in ("approved", "edited"):
                     tuple_approvals[tid] = tuple_approvals.get(tid, 0) + 1
 
             unique_validated = len(tuple_approvals)
             gold_verified = sum(1 for cnt in tuple_approvals.values() if cnt >= 3)
+            lang_counts = {k: len(v) for k, v in lang_unique.items()}
+
+            # Percentage growth calculations
+            overall_pct = round((total / TOTAL_SENTENCES) * 100, 2)
+            coverage_pct = round((unique_validated / TOTAL_CONCEPTS) * 100, 2)
+            gold_pct = round((gold_verified / TOTAL_CONCEPTS) * 100, 2)
+            lang_pct = {k: round((v / TOTAL_CONCEPTS) * 100, 2) for k, v in lang_counts.items()}
+
+            # Milestone roadmap tracking
+            milestones = [
+                (250, "Milestone 1: 250 Reviews (Community Kickoff)"),
+                (500, "Milestone 2: 500 Reviews (Initial Baseline)"),
+                (1000, "Milestone 3: 1,000 Reviews (Early Consensus)"),
+                (3421, "Milestone 4: 3,421 Reviews (Full Concept Coverage)"),
+                (6842, "Milestone 5: 6,842 Reviews (Dual-Review Consensus)"),
+                (13684, "Milestone 6: 13,684 Reviews (100% Gold Production)"),
+            ]
+            current_milestone = milestones[-1]
+            for m_target, m_name in milestones:
+                if total < m_target:
+                    current_milestone = (m_target, m_name)
+                    break
+
+            m_target, m_name = current_milestone
+            milestone_pct = round((min(total, m_target) / m_target) * 100, 1)
+            milestone_remaining = max(0, m_target - total)
 
             return {
                 "total": total,
@@ -315,6 +348,17 @@ def get_global_stats() -> dict:
                 "edited": edited,
                 "unique_validated": unique_validated,
                 "gold_verified": gold_verified,
+                "overall_pct": overall_pct,
+                "coverage_pct": coverage_pct,
+                "gold_pct": gold_pct,
+                "lang_counts": lang_counts,
+                "lang_pct": lang_pct,
+                "total_target_sentences": TOTAL_SENTENCES,
+                "total_target_concepts": TOTAL_CONCEPTS,
+                "milestone_name": m_name,
+                "milestone_target": m_target,
+                "milestone_pct": milestone_pct,
+                "milestone_remaining": milestone_remaining,
             }
     except Exception as e:
         print(f"[Supabase Error] Failed to get stats: {e}")
@@ -325,6 +369,17 @@ def get_global_stats() -> dict:
             "edited": 0,
             "unique_validated": 0,
             "gold_verified": 0,
+            "overall_pct": 0.0,
+            "coverage_pct": 0.0,
+            "gold_pct": 0.0,
+            "lang_counts": {"amh": 0, "orm": 0, "tir": 0, "som": 0},
+            "lang_pct": {"amh": 0.0, "orm": 0.0, "tir": 0.0, "som": 0.0},
+            "total_target_sentences": TOTAL_SENTENCES,
+            "total_target_concepts": TOTAL_CONCEPTS,
+            "milestone_name": "Milestone 1: 250 Reviews",
+            "milestone_target": 250,
+            "milestone_pct": 0.0,
+            "milestone_remaining": 250,
         }
 
 

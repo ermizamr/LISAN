@@ -201,6 +201,17 @@ def get_candidate_sentence(user_id: int = None, username: str = None, preferred_
     return random.choice(priority_pool)
 
 
+def render_progress_bar(percent: float, length: int = 10, filled: str = "█", empty: str = "░") -> str:
+    """Renders a sleek Unicode progress bar with percentage: [████░░░░░░] 40.0%"""
+    clamped = max(0.0, min(100.0, float(percent)))
+    fill_count = int(round((clamped / 100.0) * length))
+    if clamped > 0 and fill_count == 0:
+        fill_count = 1  # show visual feedback for initial progress
+    empty_count = length - fill_count
+    bar = (filled * fill_count) + (empty * empty_count)
+    return f"<code>[{bar}]</code> <b>{clamped:.1f}%</b>"
+
+
 def make_card_text(item: dict) -> str:
     """Formats a clean, resilient HTML card for Telegram with live sentence score."""
     lang_info = LANGUAGES.get(item["lang"], {"name": item["lang"]})
@@ -340,7 +351,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("🎯 Start Validating (አረጋግጥ)", callback_data="val_start"),
         ],
         [
-            InlineKeyboardButton("🌐 Quick Translate", callback_data="menu_translate"),
+            InlineKeyboardButton("🚀 100% Goal Progress", callback_data="menu_progress"),
             InlineKeyboardButton("🏆 Leaderboard & XP", callback_data="menu_leaderboard"),
         ],
         [
@@ -348,6 +359,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("📈 Live Analytics", callback_data="menu_analytics"),
         ],
         [
+            InlineKeyboardButton("🌐 Quick Translate", callback_data="menu_translate"),
             InlineKeyboardButton("ℹ️ About & Open Source", callback_data="menu_about"),
         ],
     ]
@@ -429,11 +441,13 @@ async def send_new_validation_card(update: Update, context: ContextTypes.DEFAULT
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Shows global dataset and live Supabase validation statistics."""
+    """Shows global dataset and live Supabase validation statistics with progress to 100%."""
     stats = get_global_stats()
     unique_cnt = stats.get("unique_validated", 0)
     gold_cnt = stats.get("gold_verified", 0)
-    coverage_pct = round((unique_cnt / 3421) * 100, 1) if unique_cnt else 0.0
+    overall_bar = render_progress_bar(stats["overall_pct"], length=10)
+    coverage_bar = render_progress_bar(stats["coverage_pct"], length=10)
+    gold_bar = render_progress_bar(stats["gold_pct"], length=10)
 
     text = (
         f"📊 <b>LISAN Global Corpus & Validation Scorecard</b>\n"
@@ -441,31 +455,106 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📦 <b>Total Bitext Dataset</b>: <code>373,276 pairs</code>\n"
         f"🔀 <b>Language Directions</b>: <code>20 pairs (All 5x4 symmetrical)</code>\n"
         f"💎 <b>Gold Validation Library</b>: <code>3,421 concepts (13,684 sentences)</code>\n\n"
-        f"🌐 <b>Live Community Consensus & Coverage</b>:\n"
-        f"• Total Reviews Cast: <code>{stats['total']:,}</code>\n"
+        f"🎯 <b>Progress to 100% Verification Goal</b>:\n"
+        f"• Total Translations: {overall_bar} ({stats['total']:,} / 13,684)\n"
+        f"• Unique Concepts: {coverage_bar} ({unique_cnt:,} / 3,421)\n"
+        f"• Gold Consensus (3/3): {gold_bar} ({gold_cnt:,} / 3,421)\n\n"
+        f"🌐 <b>Community Review Breakdown</b>:\n"
         f"• Approved by Community: <code>{stats['approved']:,}</code>\n"
         f"• Human Corrections (Edits): <code>{stats['edited']:,}</code>\n"
         f"• Flagged / Quarantined: <code>{stats['rejected']:,}</code>\n"
-        f"• Unique Sentences Validated: <code>{unique_cnt:,} / 3,421 ({coverage_pct}%)</code>\n"
-        f"• Reached Gold Standard (3/3): <code>{gold_cnt:,} concepts</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f'🔗 <b>Live Hub</b>: <a href="https://lisan.ermizamr.tech/validate.html">lisan.ermizamr.tech</a>'
     )
 
     keyboard = [
+        [InlineKeyboardButton("🚀 100% Growth Roadmap", callback_data="menu_progress")],
         [InlineKeyboardButton("📈 Community Analytics", callback_data="menu_analytics")],
-        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_home")],
+        [InlineKeyboardButton("🏠 Back to Main Menu", callback_data="menu_home")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(
-            text, parse_mode="HTML", reply_markup=reply_markup, disable_web_page_preview=True
-        )
+        try:
+            await update.callback_query.edit_message_text(
+                text, parse_mode="HTML", reply_markup=reply_markup, disable_web_page_preview=True
+            )
+        except Exception:
+            await update.callback_query.message.reply_text(
+                text, parse_mode="HTML", reply_markup=reply_markup, disable_web_page_preview=True
+            )
     else:
         await update.message.reply_text(
             text, parse_mode="HTML", reply_markup=reply_markup, disable_web_page_preview=True
+        )
+
+
+async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Displays comprehensive dataset growth percentage to 100% completion."""
+    stats = get_global_stats()
+    summary = get_analytics_summary()
+
+    overall_bar = render_progress_bar(stats["overall_pct"], length=12)
+    coverage_bar = render_progress_bar(stats["coverage_pct"], length=10)
+    gold_bar = render_progress_bar(stats["gold_pct"], length=10)
+
+    amh_bar = render_progress_bar(stats["lang_pct"]["amh"], length=10)
+    orm_bar = render_progress_bar(stats["lang_pct"]["orm"], length=10)
+    tir_bar = render_progress_bar(stats["lang_pct"]["tir"], length=10)
+    som_bar = render_progress_bar(stats["lang_pct"]["som"], length=10)
+
+    m_bar = render_progress_bar(stats["milestone_pct"], length=10)
+
+    text = (
+        f"🚀 <b>LISAN 100% Dataset Growth & Milestone Roadmap</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"We are curating the first authentic, production-grade AI dataset for Ethiopian and Horn of Africa languages.\n\n"
+        f"🎯 <b>Total Progress to 100% Goal</b>:\n"
+        f"{overall_bar} ({stats['total']:,} / {stats['total_target_sentences']:,} translations)\n\n"
+        f"🏁 <b>Current Target Milestone</b>:\n"
+        f"• <b>{stats['milestone_name']}</b>\n"
+        f"  {m_bar} ({stats['total']:,} / {stats['milestone_target']:,} — {stats['milestone_remaining']:,} needed)\n\n"
+        f"🗣️ <b>Language Progress to 100% (3,421 each)</b>:\n"
+        f"• <b>Amharic (አማርኛ)</b>:\n"
+        f"  {amh_bar} ({stats['lang_counts']['amh']:,} / 3,421)\n"
+        f"• <b>Afaan Oromoo</b>:\n"
+        f"  {orm_bar} ({stats['lang_counts']['orm']:,} / 3,421)\n"
+        f"• <b>Tigrinya (ትግርኛ)</b>:\n"
+        f"  {tir_bar} ({stats['lang_counts']['tir']:,} / 3,421)\n"
+        f"• <b>Somali (Soomaali)</b>:\n"
+        f"  {som_bar} ({stats['lang_counts']['som']:,} / 3,421)\n\n"
+        f"💎 <b>Quality Consensus Metrics</b>:\n"
+        f"• Concept Coverage: {coverage_bar} ({stats['unique_validated']:,} / 3,421 concepts)\n"
+        f"• Gold Consensus (3/3): {gold_bar} ({stats['gold_verified']:,} / 3,421 verified)\n"
+        f"• Active Contributors: <code>{summary['unique_contributors']:,} community members</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 <i>Every 5-second validation pushes our languages closer to 100% open AI readiness!</i>"
+    )
+
+    keyboard = [
+        [InlineKeyboardButton("🎯 Validate & Boost Progress (+10 XP)", callback_data="val_start")],
+        [
+            InlineKeyboardButton("🏆 Leaderboard", callback_data="menu_leaderboard"),
+            InlineKeyboardButton("📈 Live Analytics", callback_data="menu_analytics"),
+        ],
+        [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_home")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if update.callback_query:
+        await update.callback_query.answer()
+        try:
+            await update.callback_query.edit_message_text(
+                text, parse_mode="HTML", reply_markup=reply_markup
+            )
+        except Exception:
+            await update.callback_query.message.reply_text(
+                text, parse_mode="HTML", reply_markup=reply_markup
+            )
+    else:
+        await update.message.reply_text(
+            text, parse_mode="HTML", reply_markup=reply_markup
         )
 
 
@@ -617,6 +706,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     elif data == "menu_analytics":
         await analytics_command(update, context)
+        return
+    elif data == "menu_progress":
+        await progress_command(update, context)
         return
     elif data in ("val_start", "val_lang_picker"):
         await send_language_picker(update, context)
@@ -946,6 +1038,8 @@ def create_bot_application():
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("validate", validate_command))
     app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("progress", progress_command))
+    app.add_handler(CommandHandler("goal", progress_command))
     app.add_handler(CommandHandler("leaderboard", leaderboard_command))
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("analytics", analytics_command))
