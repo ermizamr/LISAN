@@ -616,3 +616,93 @@ def get_user_stats(user_id: int, username: str = "") -> dict:
         "rank": rank,
     }
 
+
+def get_app_telemetry_summary() -> dict:
+    """Computes comprehensive app analytics & telemetry metrics from Supabase."""
+    endpoint_dedicated = f"{SUPABASE_URL}/rest/v1/app_analytics?select=*&order=created_at.desc&limit=500"
+    req_dedicated = urllib.request.Request(endpoint_dedicated, headers=HEADERS)
+    rows = []
+    try:
+        with urllib.request.urlopen(req_dedicated, timeout=3) as response:
+            if response.status == 200:
+                rows = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError:
+        pass
+    except Exception:
+        pass
+
+    # Fallback if dedicated table not yet populated or not created
+    if not rows:
+        endpoint_fallback = f"{SUPABASE_URL}/rest/v1/community_validations?domain=eq.app_analytics&select=*&order=created_at.desc&limit=500"
+        req_fallback = urllib.request.Request(endpoint_fallback, headers=HEADERS)
+        try:
+            with urllib.request.urlopen(req_fallback, timeout=4) as response:
+                if response.status == 200:
+                    raw_rows = json.loads(response.read().decode("utf-8"))
+                    for r in raw_rows:
+                        note_json = {}
+                        try:
+                            note_json = json.loads(r.get("reviewer_note") or "{}")
+                        except Exception:
+                            pass
+                        rows.append({
+                            "device_id": note_json.get("device_id", "unknown_device"),
+                            "session_id": note_json.get("session_id", ""),
+                            "event_type": str(r.get("status", "")).replace("event:", ""),
+                            "source_lang": r.get("original_target"),
+                            "target_lang": r.get("target_lang"),
+                            "input_type": note_json.get("input_type", "voice"),
+                            "mode": r.get("validated_text", "offline_nmt"),
+                            "latency_ms": note_json.get("latency_ms", 0),
+                            "scenario": note_json.get("scenario", "general"),
+                            "platform": note_json.get("platform", "android"),
+                            "created_at": r.get("created_at"),
+                            "metadata": note_json.get("metadata", {}),
+                        })
+        except Exception as e:
+            print(f"[Supabase App Analytics Fallback Error] {e}")
+
+    total_events = len(rows)
+    translation_events = [r for r in rows if r.get("event_type") == "translation"]
+    total_translations = len(translation_events)
+    online_count = sum(1 for r in translation_events if r.get("mode") == "server_api")
+    offline_count = sum(1 for r in translation_events if r.get("mode") in ("offline_nmt", "offline_tm"))
+    voice_count = sum(1 for r in translation_events if r.get("input_type") == "voice")
+    text_count = sum(1 for r in translation_events if r.get("input_type") == "text")
+    tts_count = sum(1 for r in rows if r.get("event_type") == "tts_played")
+
+    latencies = [r.get("latency_ms", 0) for r in translation_events if r.get("latency_ms", 0) > 0]
+    avg_latency = round(sum(latencies) / len(latencies), 1) if latencies else 0.0
+
+    devices = set(r.get("device_id") for r in rows if r.get("device_id"))
+    platforms = {}
+    for r in rows:
+        p = r.get("platform", "unknown")
+        platforms[p] = platforms.get(p, 0) + 1
+
+    lang_pairs = {}
+    for r in translation_events:
+        src = r.get("source_lang") or "?"
+        tgt = r.get("target_lang") or "?"
+        pair = f"{src.upper()} ➔ {tgt.upper()}"
+        lang_pairs[pair] = lang_pairs.get(pair, 0) + 1
+
+    offline_pct = round((offline_count / total_translations * 100), 1) if total_translations > 0 else 0.0
+
+    return {
+        "total_events": total_events,
+        "total_translations": total_translations,
+        "online_count": online_count,
+        "offline_count": offline_count,
+        "offline_percentage": offline_pct,
+        "voice_count": voice_count,
+        "text_count": text_count,
+        "tts_count": tts_count,
+        "avg_latency_ms": avg_latency,
+        "unique_devices": len(devices),
+        "platforms": platforms,
+        "lang_pairs": dict(sorted(lang_pairs.items(), key=lambda x: x[1], reverse=True)[:8]),
+        "recent_events": rows[:25],
+    }
+
+

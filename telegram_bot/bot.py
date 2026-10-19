@@ -57,6 +57,7 @@ from telegram_bot.supabase_client import (
     get_latest_pending_edit,
     clear_pending_edit,
     get_user_stats,
+    get_app_telemetry_summary,
 )
 
 # Set up logging
@@ -356,10 +357,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton("📊 Dataset Stats", callback_data="menu_stats"),
-            InlineKeyboardButton("📈 Live Analytics", callback_data="menu_analytics"),
+            InlineKeyboardButton("📈 Community Reviews", callback_data="menu_analytics"),
         ],
         [
+            InlineKeyboardButton("📱 App Telemetry & Metrics", callback_data="menu_app_analytics"),
             InlineKeyboardButton("🌐 Quick Translate", callback_data="menu_translate"),
+        ],
+        [
             InlineKeyboardButton("ℹ️ About & Open Source", callback_data="menu_about"),
         ],
     ]
@@ -605,6 +609,70 @@ async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def app_analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Displays real-time mobile app telemetry, offline usage, and translation metrics."""
+    summary = get_app_telemetry_summary()
+    total_trans = summary["total_translations"]
+    offline_pct = summary["offline_percentage"]
+    online_cnt = summary["online_count"]
+    offline_cnt = summary["offline_count"]
+    voice_cnt = summary["voice_count"]
+    text_cnt = summary["text_count"]
+    avg_lat = summary["avg_latency_ms"]
+    devices = summary["unique_devices"]
+    tts_cnt = summary["tts_count"]
+    lang_pairs = summary["lang_pairs"]
+
+    if lang_pairs:
+        pairs_text = "\n".join([f"• <code>{pair}</code>: <b>{cnt:,}</b>" for pair, cnt in lang_pairs.items()])
+    else:
+        pairs_text = "• <i>Awaiting initial mobile sessions...</i>"
+
+    text = (
+        f"📱 <b>LISAN Mobile App Live Telemetry</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔢 <b>Total Translations</b>: <code>{total_trans:,}</code>\n"
+        f"👥 <b>Active Devices</b>: <code>{devices:,}</code>\n"
+        f"⚡ <b>Average Latency</b>: <code>{avg_lat} ms</code>\n"
+        f"🔊 <b>Neural Voice (TTS)</b>: <code>{tts_cnt:,}</code>\n\n"
+        f"🌐 <b>Offline vs Cloud Pipeline</b>:\n"
+        f"• ⚡ <b>On-Device (Offline NLLB)</b>: <code>{offline_cnt:,}</code> ({offline_pct}%)\n"
+        f"• ☁️ <b>Cloud / PC Server API</b>: <code>{online_cnt:,}</code> ({round(100 - offline_pct, 1) if total_trans else 0.0}%)\n\n"
+        f"🎙️ <b>Input Modality</b>:\n"
+        f"• Voice (AfriHuBERT STT): <code>{voice_cnt:,}</code>\n"
+        f"• Typed Text: <code>{text_cnt:,}</code>\n\n"
+        f"🗣️ <b>Top Directional Language Pairs</b>:\n"
+        f"{pairs_text}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f'📊 <b>Web Dashboard</b>: <a href="http://127.0.0.1:8000/dashboard">Open Live Visual Hub</a>'
+    )
+
+    keyboard = [
+        [InlineKeyboardButton("🔄 Refresh Telemetry", callback_data="menu_app_analytics")],
+        [
+            InlineKeyboardButton("📈 Community Reviews", callback_data="menu_analytics"),
+            InlineKeyboardButton("📊 Dataset Stats", callback_data="menu_stats"),
+        ],
+        [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_home")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if update.callback_query:
+        await update.callback_query.answer()
+        try:
+            await update.callback_query.edit_message_text(
+                text, parse_mode="HTML", reply_markup=reply_markup, disable_web_page_preview=True
+            )
+        except Exception:
+            await update.callback_query.message.reply_text(
+                text, parse_mode="HTML", reply_markup=reply_markup, disable_web_page_preview=True
+            )
+    else:
+        await update.message.reply_text(
+            text, parse_mode="HTML", reply_markup=reply_markup, disable_web_page_preview=True
+        )
+
+
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Displays top community contributors and personal score."""
     leaders = get_leaderboard(limit=5)
@@ -706,6 +774,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     elif data == "menu_analytics":
         await analytics_command(update, context)
+        return
+    elif data == "menu_app_analytics":
+        await app_analytics_command(update, context)
         return
     elif data == "menu_progress":
         await progress_command(update, context)
@@ -1043,6 +1114,8 @@ def create_bot_application():
     app.add_handler(CommandHandler("leaderboard", leaderboard_command))
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("analytics", analytics_command))
+    app.add_handler(CommandHandler("app_analytics", app_analytics_command))
+    app.add_handler(CommandHandler("telemetry", app_analytics_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 

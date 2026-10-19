@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LISAN (ልሳን) — App Analytics & Live Telemetry Hub</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23F05A36'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z'/></svg>">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+Ethiopic:wght@400;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+            ethiopic: ['"Noto Sans Ethiopic"', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              orange: '#F05A36',
+              acid: '#D8F171',
+              dark: '#141714',
+              card: '#1C201C',
+              cardHover: '#232823',
+              border: '#2B322B',
+              paper: '#DDD5C3',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #101310;
+      color: #E8ECE8;
+    }
+    .glow-orange {
+      box-shadow: 0 0 25px -5px rgba(240, 90, 54, 0.25);
+    }
+    .glow-acid {
+      box-shadow: 0 0 25px -5px rgba(216, 241, 113, 0.2);
+    }
+    @keyframes pulse-slow {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(0.96); }
+    }
+    .pulse-slow {
+      animation: pulse-slow 2.5s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col font-sans selection:bg-brand-orange selection:text-white">
+
+  <!-- Top Navigation Header -->
+  <header class="border-b border-brand-border bg-brand-dark/90 backdrop-blur sticky top-0 z-50 px-6 py-4">
+    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-brand-orange flex items-center justify-center font-ethiopic text-white text-xl font-bold shadow-lg shadow-brand-orange/20">
+          ል
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+              LISAN <span class="text-brand-orange font-ethiopic font-normal text-lg">ልሳን</span>
+              <span class="text-xs px-2 py-0.5 rounded-full bg-brand-border text-neutral-300 font-mono">TELEMETRY HUB</span>
+            </h1>
+          </div>
+          <p class="text-xs text-neutral-400">Offline-First Speech Translation Analytics & App Health</p>
+        </div>
+      </div>
+
+      <!-- Controls & Status -->
+      <div class="flex items-center space-x-3">
+        <div class="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-brand-card border border-brand-border text-xs">
+          <span class="w-2.5 h-2.5 rounded-full bg-brand-acid pulse-slow inline-block"></span>
+          <span class="text-neutral-300 font-mono" id="connection-status">Live Connected</span>
+        </div>
+
+        <button id="refresh-btn" onclick="fetchAnalytics()" class="px-3.5 py-1.5 rounded-lg bg-brand-card hover:bg-brand-cardHover border border-brand-border text-xs font-medium text-neutral-200 transition flex items-center space-x-1.5">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-brand-orange" id="refresh-icon"></i>
+          <span>Refresh</span>
+        </button>
+
+        <a href="https://github.com/ermizamr/LISAN" target="_blank" class="px-3 py-1.5 rounded-lg bg-brand-orange hover:bg-orange-600 text-white text-xs font-semibold transition flex items-center space-x-1.5">
+          <i data-lucide="github" class="w-3.5 h-3.5"></i>
+          <span>GitHub</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+
+    <!-- KPI Metric Cards Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      
+      <!-- Total Translations -->
+      <div class="p-5 rounded-2xl bg-brand-card border border-brand-border hover:border-brand-orange/40 transition glow-orange">
+        <div class="flex items-center justify-between text-neutral-400 mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider">Total Translations</span>
+          <div class="w-8 h-8 rounded-lg bg-brand-orange/15 text-brand-orange flex items-center justify-center">
+            <i data-lucide="languages" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="text-3xl font-extrabold text-white font-mono" id="stat-total-translations">--</div>
+        <div class="mt-2 flex items-center text-xs text-neutral-400">
+          <span class="text-brand-acid font-semibold flex items-center mr-1.5" id="stat-voice-share">--% Voice</span>
+          <span>• Voice STT + Text</span>
+        </div>
+      </div>
+
+      <!-- Offline vs Cloud Execution -->
+      <div class="p-5 rounded-2xl bg-brand-card border border-brand-border hover:border-brand-acid/40 transition glow-acid">
+        <div class="flex items-center justify-between text-neutral-400 mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider">On-Device Offline Ratio</span>
+          <div class="w-8 h-8 rounded-lg bg-brand-acid/15 text-brand-acid flex items-center justify-center">
+            <i data-lucide="cpu" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="text-3xl font-extrabold text-brand-acid font-mono" id="stat-offline-pct">--%</div>
+        <div class="mt-2 text-xs text-neutral-400 flex items-center justify-between">
+          <span><span class="text-white font-mono" id="stat-offline-count">--</span> On-Device (INT8)</span>
+          <span><span class="text-white font-mono" id="stat-online-count">--</span> Server</span>
+        </div>
+      </div>
+
+      <!-- Average Latency -->
+      <div class="p-5 rounded-2xl bg-brand-card border border-brand-border hover:border-neutral-700 transition">
+        <div class="flex items-center justify-between text-neutral-400 mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider">Average Latency</span>
+          <div class="w-8 h-8 rounded-lg bg-blue-500/15 text-blue-400 flex items-center justify-center">
+            <i data-lucide="gauge" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="text-3xl font-extrabold text-white font-mono" id="stat-avg-latency">-- <span class="text-sm font-normal text-neutral-400">ms</span></div>
+        <div class="mt-2 text-xs text-neutral-400">
+          Target: &lt; 500ms on ARM Mobile CPU
+        </div>
+      </div>
+
+      <!-- Active Devices & TTS -->
+      <div class="p-5 rounded-2xl bg-brand-card border border-brand-border hover:border-neutral-700 transition">
+        <div class="flex items-center justify-between text-neutral-400 mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider">Active Devices</span>
+          <div class="w-8 h-8 rounded-lg bg-purple-500/15 text-purple-400 flex items-center justify-center">
+            <i data-lucide="smartphone" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="text-3xl font-extrabold text-white font-mono" id="stat-active-devices">--</div>
+        <div class="mt-2 text-xs text-neutral-400 flex items-center space-x-1">
+          <span>Neural TTS Syntheses:</span>
+          <span class="text-white font-mono font-bold" id="stat-tts-count">--</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- Language Pairs Distribution (2 cols) -->
+      <div class="lg:col-span-2 p-5 rounded-2xl bg-brand-card border border-brand-border flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider">Directional Language Pairs</h3>
+            <p class="text-xs text-neutral-400">Amharic, Afaan Oromoo, Tigrinya, Somali, and English flows</p>
+          </div>
+          <span class="text-xs px-2.5 py-1 rounded bg-brand-border/60 text-neutral-300 font-mono">Live Ingest</span>
+        </div>
+        <div class="relative h-64 w-full">
+          <canvas id="langPairsChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Execution Mode Breakdown (1 col) -->
+      <div class="p-5 rounded-2xl bg-brand-card border border-brand-border flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider">Execution Pipeline</h3>
+            <p class="text-xs text-neutral-400">On-Device NLLB vs Cloud API</p>
+          </div>
+          <i data-lucide="pie-chart" class="w-4 h-4 text-neutral-400"></i>
+        </div>
+        <div class="relative h-64 w-full flex items-center justify-center">
+          <canvas id="modeChart"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Live Telemetry Stream Table -->
+    <div class="p-5 rounded-2xl bg-brand-card border border-brand-border space-y-4">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div>
+          <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <span>Live Telemetry Stream</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-brand-acid/20 text-brand-acid font-mono font-medium">Real-Time</span>
+          </h3>
+          <p class="text-xs text-neutral-400">Chronological feed of incoming mobile events and translations</p>
+        </div>
+
+        <div class="flex items-center space-x-2 text-xs text-neutral-400 font-mono">
+          <span>Auto-refresh:</span>
+          <select id="auto-refresh-select" onchange="updateAutoRefresh()" class="bg-brand-dark border border-brand-border rounded px-2 py-1 text-neutral-200 focus:outline-none">
+            <option value="5000">5 seconds</option>
+            <option value="15000" selected>15 seconds</option>
+            <option value="60000">1 minute</option>
+            <option value="0">Off</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto rounded-xl border border-brand-border/60">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-brand-dark/80 text-neutral-400 uppercase font-mono text-[10px] tracking-wider border-b border-brand-border">
+            <tr>
+              <th class="py-3 px-4">Time (UTC)</th>
+              <th class="py-3 px-4">Device ID</th>
+              <th class="py-3 px-4">Event</th>
+              <th class="py-3 px-4">Language Flow</th>
+              <th class="py-3 px-4">Modality</th>
+              <th class="py-3 px-4">Pipeline</th>
+              <th class="py-3 px-4">Latency</th>
+              <th class="py-3 px-4">Platform</th>
+            </tr>
+          </thead>
+          <tbody id="telemetry-table-body" class="divide-y divide-brand-border/40 font-mono">
+            <tr>
+              <td colspan="8" class="text-center py-8 text-neutral-500">
+                <div class="flex items-center justify-center space-x-2">
+                  <i data-lucide="loader-2" class="w-4 h-4 animate-spin text-brand-orange"></i>
+                  <span>Fetching live telemetry records from Supabase...</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-brand-border py-4 px-6 text-center text-xs text-neutral-500 font-mono">
+    LISAN AI Project • Open Source Multilingual Engine for Ethiopian & Horn of Africa Languages • 2026
+  </footer>
+
+  <!-- Dashboard JavaScript Logic -->
+  <script>
+    let langChartInstance = null;
+    let modeChartInstance = null;
+    let autoRefreshTimer = null;
+
+    const SUPABASE_URL = "https://xknxnycwrkffmxcwqxjs.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrbnhueWN3cmtmZm14Y3dxeGpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwODM5MTQsImV4cCI6MjEwNzY1OTkxNH0.5MgXgdhAtUggyNnCpL94EcjmR5JrAs74fiYK0BjUDaM";
+
+    async function fetchAnalytics() {
+      const refreshIcon = document.getElementById('refresh-icon');
+      if (refreshIcon) refreshIcon.classList.add('animate-spin');
+
+      try {
+        // Try local backend API first, if offline fall back directly to Supabase REST
+        let summary = null;
+        try {
+          const localRes = await fetch('/api/analytics/summary').catch(() => null);
+          if (localRes && localRes.ok) {
+            summary = await localRes.json();
+          }
+        } catch (_) {}
+
+        if (!summary) {
+          summary = await fetchDirectFromSupabase();
+        }
+
+        renderDashboard(summary);
+        document.getElementById('connection-status').textContent = 'Live Connected';
+        document.getElementById('connection-status').className = 'text-brand-acid font-mono';
+      } catch (err) {
+        console.error('Analytics fetch error:', err);
+        document.getElementById('connection-status').textContent = 'Reconnecting...';
+        document.getElementById('connection-status').className = 'text-amber-400 font-mono';
+      } finally {
+        if (refreshIcon) refreshIcon.classList.remove('animate-spin');
+      }
+    }
+
+    async function fetchDirectFromSupabase() {
+      // 1. Try app_analytics
+      let rows = [];
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/app_analytics?order=created_at.desc&limit=500`, {
+          headers: {
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`
+          }
+        });
+        if (res.ok) {
+          rows = await res.json();
+        }
+      } catch (_) {}
+
+      // 2. Fallback to community_validations with domain=app_analytics
+      if (!rows || rows.length === 0) {
+        try {
+          const resFallback = await fetch(`${SUPABASE_URL}/rest/v1/community_validations?domain=eq.app_analytics&order=created_at.desc&limit=500`, {
+            headers: {
+              apikey: SUPABASE_KEY,
+              Authorization: `Bearer ${SUPABASE_KEY}`
+            }
+          });
+          if (resFallback.ok) {
+            const rawRows = await resFallback.json();
+            rows = rawRows.map(r => {
+              let note = {};
+              try { note = JSON.parse(r.reviewer_note || '{}'); } catch (_) {}
+              return {
+                device_id: note.device_id || 'unknown_device',
+                session_id: note.session_id || '',
+                event_type: (r.status || '').replace('event:', ''),
+                source_lang: r.original_target || '?',
+                target_lang: r.target_lang || '?',
+                input_type: note.input_type || 'voice',
+                mode: r.validated_text || 'offline_nmt',
+                latency_ms: note.latency_ms || 0,
+                scenario: note.scenario || 'general',
+                platform: note.platform || 'android',
+                created_at: r.created_at,
+                metadata: note.metadata || {}
+              };
+            });
+          }
+        } catch (_) {}
+      }
+
+      // Aggregate summary metrics
+      const translations = rows.filter(r => r.event_type === 'translation');
+      const totalTranslations = translations.length;
+      const offlineCount = translations.filter(r => r.mode === 'offline_nmt' || r.mode === 'offline_tm').length;
+      const onlineCount = translations.filter(r => r.mode === 'server_api').length;
+      const voiceCount = translations.filter(r => r.input_type === 'voice').length;
+      const textCount = translations.filter(r => r.input_type === 'text').length;
+      const ttsCount = rows.filter(r => r.event_type === 'tts_played').length;
+
+      const latencies = translations.map(r => r.latency_ms).filter(ms => ms > 0);
+      const avgLatency = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0;
+      const offlinePct = totalTranslations > 0 ? Math.round((offlineCount / totalTranslations) * 100) : 0;
+      const voiceShare = totalTranslations > 0 ? Math.round((voiceCount / totalTranslations) * 100) : 0;
+
+      const devices = new Set(rows.map(r => r.device_id).filter(Boolean));
+
+      const langPairs = {};
+      translations.forEach(r => {
+        const pair = `${(r.source_lang || '?').toUpperCase()} ➔ ${(r.target_lang || '?').toUpperCase()}`;
+        langPairs[pair] = (langPairs[pair] || 0) + 1;
+      });
+
+      return {
+        total_translations: totalTranslations,
+        offline_count: offlineCount,
+        online_count: onlineCount,
+        offline_percentage: offlinePct,
+        voice_count: voiceCount,
+        text_count: textCount,
+        voice_share: voiceShare,
+        avg_latency_ms: avgLatency,
+        unique_devices: devices.size,
+        tts_count: ttsCount,
+        lang_pairs: langPairs,
+        recent_events: rows.slice(0, 30)
+      };
+    }
+
+    function renderDashboard(data) {
+      document.getElementById('stat-total-translations').textContent = Number(data.total_translations || 0).toLocaleString();
+      document.getElementById('stat-offline-pct').textContent = `${data.offline_percentage || 0}%`;
+      document.getElementById('stat-offline-count').textContent = Number(data.offline_count || 0).toLocaleString();
+      document.getElementById('stat-online-count').textContent = Number(data.online_count || 0).toLocaleString();
+      document.getElementById('stat-voice-share').textContent = `${data.voice_share || 0}% Voice`;
+      document.getElementById('stat-avg-latency').textContent = `${data.avg_latency_ms || 0} ms`;
+      document.getElementById('stat-active-devices').textContent = Number(data.unique_devices || 0).toLocaleString();
+      document.getElementById('stat-tts-count').textContent = Number(data.tts_count || 0).toLocaleString();
+
+      // Render Charts
+      renderLangChart(data.lang_pairs || {});
+      renderModeChart(data.offline_count || 0, data.online_count || 0);
+
+      // Render Table
+      renderTable(data.recent_events || []);
+    }
+
+    function renderLangChart(pairs) {
+      const ctx = document.getElementById('langPairsChart');
+      if (!ctx) return;
+
+      const labels = Object.keys(pairs).slice(0, 8);
+      const values = labels.map(k => pairs[k]);
+
+      if (labels.length === 0) {
+        labels.push('AMH ➔ ORM', 'ENG ➔ AMH', 'ORM ➔ ENG', 'TIR ➔ ENG', 'SOM ➔ ENG');
+        values.push(0, 0, 0, 0, 0);
+      }
+
+      if (langChartInstance) {
+        langChartInstance.destroy();
+      }
+
+      langChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Translations Count',
+            data: values,
+            backgroundColor: 'rgba(240, 90, 54, 0.85)',
+            hoverBackgroundColor: 'rgba(240, 90, 54, 1.0)',
+            borderRadius: 6,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: {
+              grid: { color: '#2B322B' },
+              ticks: { color: '#9CA3AF', font: { family: 'JetBrains Mono' } }
+            },
+            y: {
+              grid: { color: '#2B322B' },
+              ticks: { color: '#9CA3AF', stepSize: 1, font: { family: 'JetBrains Mono' } }
+            }
+          }
+        }
+      });
+    }
+
+    function renderModeChart(offline, online) {
+      const ctx = document.getElementById('modeChart');
+      if (!ctx) return;
+
+      if (modeChartInstance) {
+        modeChartInstance.destroy();
+      }
+
+      const total = offline + online;
+      const dataValues = total > 0 ? [offline, online] : [1, 0];
+
+      modeChartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['On-Device (Offline)', 'Server API (Cloud)'],
+          datasets: [{
+            data: dataValues,
+            backgroundColor: ['#D8F171', '#F05A36'],
+            borderWidth: 2,
+            borderColor: '#1C201C',
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { color: '#D1D5DB', font: { family: 'Plus Jakarta Sans', size: 11 } }
+            }
+          },
+          cutout: '72%'
+        }
+      });
+    }
+
+    function renderTable(events) {
+      const tbody = document.getElementById('telemetry-table-body');
+      if (!tbody) return;
+
+      if (!events || events.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-neutral-500">No events logged yet. Open the LISAN app to start streaming telemetry!</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = events.map(evt => {
+        const timeStr = evt.created_at ? new Date(evt.created_at).toLocaleTimeString() : '--:--:--';
+        const modeBadge = evt.mode === 'server_api'
+          ? `<span class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">☁️ Cloud</span>`
+          : `<span class="px-2 py-0.5 rounded bg-brand-acid/20 text-brand-acid border border-brand-acid/30">⚡ On-Device</span>`;
+
+        const inputBadge = evt.input_type === 'voice'
+          ? `<span class="text-brand-orange">🎙️ Voice STT</span>`
+          : `<span class="text-neutral-400">⌨️ Text</span>`;
+
+        const pair = evt.source_lang && evt.target_lang
+          ? `${evt.source_lang.toUpperCase()} ➔ ${evt.target_lang.toUpperCase()}`
+          : '—';
+
+        return `
+          <tr class="hover:bg-brand-cardHover/60 transition">
+            <td class="py-2.5 px-4 text-neutral-400">${timeStr}</td>
+            <td class="py-2.5 px-4 text-neutral-300 font-mono text-[11px] truncate max-w-[120px]" title="${evt.device_id || ''}">${(evt.device_id || 'unknown').substring(0, 12)}</td>
+            <td class="py-2.5 px-4 font-semibold text-white capitalize">${evt.event_type || 'event'}</td>
+            <td class="py-2.5 px-4 text-neutral-200 font-bold">${pair}</td>
+            <td class="py-2.5 px-4">${inputBadge}</td>
+            <td class="py-2.5 px-4">${modeBadge}</td>
+            <td class="py-2.5 px-4 text-neutral-300 font-mono">${evt.latency_ms ? evt.latency_ms + ' ms' : '—'}</td>
+            <td class="py-2.5 px-4 text-neutral-400 uppercase text-[10px]">${evt.platform || 'android'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function updateAutoRefresh() {
+      if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+      const val = parseInt(document.getElementById('auto-refresh-select').value, 10);
+      if (val > 0) {
+        autoRefreshTimer = setInterval(fetchAnalytics, val);
+      }
+    }
+
+    // Initial load
+    window.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      fetchAnalytics();
+      updateAutoRefresh();
+    });
+  </script>
+</body>
+</html>

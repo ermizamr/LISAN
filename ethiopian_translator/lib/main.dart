@@ -14,6 +14,7 @@ import 'offline_ort_config.dart';
 import 'offline_stt_service.dart';
 import 'offline_translation_memory.dart';
 import 'offline_vits_tts.dart';
+import 'analytics_service.dart';
 import 'recording_service.dart';
 import 'translator_api.dart';
 
@@ -23,9 +24,13 @@ String computeTtsCacheKey(String lang, String text) {
   return '${lang}_$hash';
 }
 
-void main() => runApp(
-  TranslatorApp(audioCapture: RecordingService(), api: TranslatorApi()),
-);
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  unawaited(AnalyticsService.instance.init());
+  runApp(
+    TranslatorApp(audioCapture: RecordingService(), api: TranslatorApi()),
+  );
+}
 
 class NativeTts {
   static const _channel = MethodChannel('com.example.ethiopian_translator/tts');
@@ -1227,6 +1232,7 @@ class _ConversationPageState extends State<ConversationPage>
     }
     _recordedFilePath = null;
 
+    final stopwatch = Stopwatch()..start();
     try {
       if (audioPath == null || audioPath.isEmpty) {
         if (mounted) {
@@ -1269,6 +1275,14 @@ class _ConversationPageState extends State<ConversationPage>
                 orElse: () => target,
               );
             }
+            AnalyticsService.instance.trackTranslation(
+              sourceLang: effectiveSrc.backendKey,
+              targetLang: effectiveTgt.backendKey,
+              inputType: 'voice',
+              mode: 'server_api',
+              latencyMs: stopwatch.elapsedMilliseconds,
+              textLength: audioRes.sourceText.length,
+            );
             if (mounted) {
               setState(() {
                 _language = effectiveSrc;
@@ -1403,6 +1417,16 @@ class _ConversationPageState extends State<ConversationPage>
         }
       }
 
+      AnalyticsService.instance.trackTranslation(
+        sourceLang: effectiveSource.backendKey,
+        targetLang: effectiveTarget.backendKey,
+        inputType: 'voice',
+        mode: backendSuccess ? 'server_api' : 'offline_nmt',
+        latencyMs: stopwatch.elapsedMilliseconds,
+        textLength: finalSource.length,
+        success: !translatedText.contains('Translation error'),
+      );
+
       if (mounted) {
         setState(() {
           _language = effectiveSource;
@@ -1418,6 +1442,12 @@ class _ConversationPageState extends State<ConversationPage>
       }
     } catch (e) {
       debugPrint('Translation error: $e');
+      AnalyticsService.instance.trackError(
+        context: 'voice_translation',
+        message: e.toString(),
+        sourceLang: source?.backendKey,
+        targetLang: target.backendKey,
+      );
       if (mounted) {
         setState(() {
           _sourceText = 'Translation error';
@@ -1469,6 +1499,7 @@ class _ConversationPageState extends State<ConversationPage>
       _view = AppView.result;
     });
 
+    final stopwatch = Stopwatch()..start();
     try {
       String finalSource = text.trim();
       String translatedText = '';
@@ -1512,6 +1543,16 @@ class _ConversationPageState extends State<ConversationPage>
         }
       }
 
+      AnalyticsService.instance.trackTranslation(
+        sourceLang: effectiveSrc.backendKey,
+        targetLang: effectiveTgt.backendKey,
+        inputType: 'text',
+        mode: backendSuccess ? 'server_api' : 'offline_nmt',
+        latencyMs: stopwatch.elapsedMilliseconds,
+        textLength: finalSource.length,
+        success: !translatedText.contains('Translation error'),
+      );
+
       if (mounted) {
         setState(() {
           _sourceText = finalSource;
@@ -1524,6 +1565,12 @@ class _ConversationPageState extends State<ConversationPage>
       }
     } catch (e) {
       debugPrint('Text translation error: $e');
+      AnalyticsService.instance.trackError(
+        context: 'text_translation',
+        message: e.toString(),
+        sourceLang: effectiveSrc.backendKey,
+        targetLang: effectiveTgt.backendKey,
+      );
       if (mounted) {
         setState(() {
           _sourceText = text;
@@ -1573,6 +1620,7 @@ class _ConversationPageState extends State<ConversationPage>
         final f = File(matchedPath);
         if (f.existsSync() && f.lengthSync() > 500) {
           debugPrint('[TTS] Playing neural cached MMS-TTS voice: ${f.path}');
+          AnalyticsService.instance.trackTtsPlayed(lang: langKey, engine: 'vits_cached');
           await _audioPlayer.stop();
           await _audioPlayer.play(DeviceFileSource(f.path));
           return;
@@ -1587,6 +1635,7 @@ class _ConversationPageState extends State<ConversationPage>
             queryParameters: {'text': text, 'lang': langKey},
           );
           debugPrint('[TTS] Local cache miss. Streaming neural TTS from backend: $serverTtsUri');
+          AnalyticsService.instance.trackTtsPlayed(lang: langKey, engine: 'server_tts');
           await _audioPlayer.stop();
           await _audioPlayer.play(UrlSource(serverTtsUri.toString()));
           return;
@@ -1601,6 +1650,7 @@ class _ConversationPageState extends State<ConversationPage>
       final generatedWav = await OfflineVitsTts().synthesize(text, langKey);
       if (generatedWav != null && await generatedWav.exists()) {
         debugPrint('[TTS] Playing synthesized MMS-TTS ONNX audio: ${generatedWav.path}');
+        AnalyticsService.instance.trackTtsPlayed(lang: langKey, engine: 'vits_mms_onnx');
         await _audioPlayer.stop();
         await _audioPlayer.play(DeviceFileSource(generatedWav.path));
         return;
@@ -1609,6 +1659,7 @@ class _ConversationPageState extends State<ConversationPage>
       // Priority 2: Fall back to native platform TTS if VITS model is unavailable
       debugPrint('[TTS] VITS synthesis unavailable/failed. Trying NativeTts for "$text" ($langKey)');
       final spoke = await NativeTts.speak(text, langKey);
+      AnalyticsService.instance.trackTtsPlayed(lang: langKey, engine: 'native_platform');
       if (!spoke) {
         debugPrint('[TTS] NativeTts could not vocalize $langKey offline.');
       }
