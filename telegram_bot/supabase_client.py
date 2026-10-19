@@ -65,24 +65,24 @@ def log_analytics_event(
     target_lang: str = "all",
     details: str = "",
 ) -> bool:
-    """Logs a lightweight telemetry event into Supabase for live community analytics."""
-    endpoint = f"{SUPABASE_URL}/rest/v1/community_validations"
+    """Logs a lightweight telemetry event into Supabase app_analytics table."""
+    endpoint = f"{SUPABASE_URL}/rest/v1/app_analytics"
     clean_handle = username if username.startswith("@") else (f"@{username}" if username else (f"@user_{user_id}" if user_id else "@anonymous"))
-    notes = f"event:{event_type} | tg:{clean_handle}"
-    if user_id:
-        notes += f" | id:tg_{user_id}"
-    if details:
-        notes += f" | {details}"
 
     payload = {
-        "tuple_id": "telemetry_event",
-        "domain": "system",
-        "english_text": f"Event: {event_type}",
+        "device_id": f"tg_{user_id}" if user_id else "tg_anonymous",
+        "session_id": f"tg_session_{user_id}" if user_id else "",
+        "event_type": event_type,
         "target_lang": str(target_lang),
-        "original_target": "system",
-        "validated_text": f"event_{event_type}",
-        "status": f"event:{event_type}",
-        "reviewer_note": notes,
+        "source_lang": "en",
+        "input_type": "telegram",
+        "mode": "bot",
+        "platform": "telegram",
+        "metadata": {
+            "tg_handle": clean_handle,
+            "user_id": user_id,
+            "details": details,
+        },
     }
 
     data = json.dumps(payload).encode("utf-8")
@@ -90,8 +90,7 @@ def log_analytics_event(
     try:
         with urllib.request.urlopen(req, timeout=3) as response:
             return response.status in (200, 201)
-    except Exception as e:
-        print(f"[Supabase Telemetry Error] {e}")
+    except Exception:
         return False
 
 
@@ -630,37 +629,6 @@ def get_app_telemetry_summary() -> dict:
         pass
     except Exception:
         pass
-
-    # Fallback if dedicated table not yet populated or not created
-    if not rows:
-        endpoint_fallback = f"{SUPABASE_URL}/rest/v1/community_validations?domain=eq.app_analytics&select=*&order=created_at.desc&limit=500"
-        req_fallback = urllib.request.Request(endpoint_fallback, headers=HEADERS)
-        try:
-            with urllib.request.urlopen(req_fallback, timeout=4) as response:
-                if response.status == 200:
-                    raw_rows = json.loads(response.read().decode("utf-8"))
-                    for r in raw_rows:
-                        note_json = {}
-                        try:
-                            note_json = json.loads(r.get("reviewer_note") or "{}")
-                        except Exception:
-                            pass
-                        rows.append({
-                            "device_id": note_json.get("device_id", "unknown_device"),
-                            "session_id": note_json.get("session_id", ""),
-                            "event_type": str(r.get("status", "")).replace("event:", ""),
-                            "source_lang": r.get("original_target"),
-                            "target_lang": r.get("target_lang"),
-                            "input_type": note_json.get("input_type", "voice"),
-                            "mode": r.get("validated_text", "offline_nmt"),
-                            "latency_ms": note_json.get("latency_ms", 0),
-                            "scenario": note_json.get("scenario", "general"),
-                            "platform": note_json.get("platform", "android"),
-                            "created_at": r.get("created_at"),
-                            "metadata": note_json.get("metadata", {}),
-                        })
-        except Exception as e:
-            print(f"[Supabase App Analytics Fallback Error] {e}")
 
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone.utc)

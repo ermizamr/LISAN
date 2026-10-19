@@ -455,9 +455,8 @@ class AnalyticsService {
     }
   }
 
-  /// Attempts to send events to Supabase `app_analytics`.
-  /// If the dedicated table doesn't exist yet (HTTP 404), seamlessly falls back
-  /// to writing structured telemetry rows into `community_validations`.
+  /// Sends telemetry events exclusively to the dedicated Supabase `app_analytics` table.
+  /// Does NOT write to dataset refinement tables.
   Future<bool> _dispatchBatch(List<AnalyticsEvent> events) async {
     final headers = {
       'apikey': supabaseKey,
@@ -468,8 +467,7 @@ class AnalyticsService {
 
     final client = http.Client();
     try {
-      // 1. Try dedicated app_analytics table
-      final directPayload = jsonEncode(
+      final payload = jsonEncode(
         events.map((e) => {
           'device_id': e.deviceId,
           'session_id': e.sessionId,
@@ -488,48 +486,11 @@ class AnalyticsService {
       );
 
       final directUri = Uri.parse('$supabaseUrl/rest/v1/app_analytics');
-      final directResp = await client
-          .post(directUri, headers: headers, body: directPayload)
+      final resp = await client
+          .post(directUri, headers: headers, body: payload)
           .timeout(const Duration(seconds: 6));
 
-      if (directResp.statusCode == 201 || directResp.statusCode == 200) {
-        return true;
-      }
-
-      // 2. If table not yet created (404), fallback to community_validations table
-      if (directResp.statusCode == 404) {
-        final fallbackPayload = jsonEncode(
-          events.map((e) => {
-            'tuple_id': 'app_telemetry',
-            'domain': 'app_analytics',
-            'english_text': 'App Event: ${e.eventType}',
-            'target_lang': e.targetLang ?? 'all',
-            'original_target': e.sourceLang ?? 'all',
-            'validated_text': e.mode ?? 'unknown',
-            'status': 'event:${e.eventType}',
-            'reviewer_note': jsonEncode({
-              'device_id': e.deviceId,
-              'session_id': e.sessionId,
-              'input_type': e.inputType,
-              'latency_ms': e.latencyMs,
-              'scenario': e.scenario,
-              'platform': e.platform,
-              'metadata': e.metadata,
-              'created_at': e.createdAt.toIso8601String(),
-            }),
-          }).toList(),
-        );
-
-        final fallbackUri = Uri.parse('$supabaseUrl/rest/v1/community_validations');
-        final fallbackResp = await client
-            .post(fallbackUri, headers: headers, body: fallbackPayload)
-            .timeout(const Duration(seconds: 6));
-
-        if (fallbackResp.statusCode == 201 || fallbackResp.statusCode == 200) {
-          return true;
-        }
-      }
-      return false;
+      return resp.statusCode == 201 || resp.statusCode == 200;
     } catch (_) {
       return false;
     } finally {

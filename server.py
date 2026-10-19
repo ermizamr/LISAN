@@ -337,40 +337,6 @@ async def api_analytics_ingest(payload: list[dict] | dict) -> dict:
         with urllib.request.urlopen(req, timeout=4) as resp:
             if resp.status in (200, 201):
                 success_count = len(items)
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            fallback_items = []
-            for item in items:
-                fallback_items.append({
-                    "tuple_id": "app_telemetry",
-                    "domain": "app_analytics",
-                    "english_text": f"App Event: {item.get('event_type')}",
-                    "target_lang": item.get("target_lang", "all"),
-                    "original_target": item.get("source_lang", "all"),
-                    "validated_text": item.get("mode", "unknown"),
-                    "status": f"event:{item.get('event_type')}",
-                    "reviewer_note": json.dumps({
-                        "device_id": item.get("device_id"),
-                        "session_id": item.get("session_id"),
-                        "input_type": item.get("input_type"),
-                        "latency_ms": item.get("latency_ms"),
-                        "scenario": item.get("scenario"),
-                        "platform": item.get("platform"),
-                        "metadata": item.get("metadata", {}),
-                    }),
-                })
-            try:
-                fb_req = urllib.request.Request(
-                    f"{SUPABASE_URL}/rest/v1/community_validations",
-                    data=json.dumps(fallback_items).encode("utf-8"),
-                    headers=HEADERS,
-                    method="POST",
-                )
-                with urllib.request.urlopen(fb_req, timeout=4) as fb_resp:
-                    if fb_resp.status in (200, 201):
-                        success_count = len(items)
-            except Exception as fb_err:
-                print(f"[Ingest Fallback Error] {fb_err}")
     except Exception as err:
         print(f"[Ingest Error] {err}")
 
