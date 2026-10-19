@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LISAN (ልሳን) — App Analytics, Installs & Fleet Telemetry</title>
+  <title>LISAN (ልሳን) — Interactive Mobile Telemetry & Analytics Dashboard</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23F05A36'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z'/></svg>">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+Ethiopic:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+Ethiopic:wght@400;600;700&display=swap" rel="stylesheet">
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -25,10 +25,10 @@
             brand: {
               orange: '#F05A36',
               acid: '#D8F171',
-              dark: '#141714',
-              card: '#1C201C',
-              cardHover: '#232823',
-              border: '#2B322B',
+              dark: '#0E110E',
+              card: '#161A16',
+              cardHover: '#1D221D',
+              border: '#262D26',
               paper: '#DDD5C3',
             }
           }
@@ -38,57 +38,111 @@
   </script>
   <style>
     body {
-      background-color: #101310;
-      color: #E8ECE8;
+      background-color: #0A0D0A;
+      color: #E5EAE5;
     }
     .glow-orange {
-      box-shadow: 0 0 25px -5px rgba(240, 90, 54, 0.25);
+      box-shadow: 0 0 25px -4px rgba(240, 90, 54, 0.22);
     }
     .glow-acid {
-      box-shadow: 0 0 25px -5px rgba(216, 241, 113, 0.2);
+      box-shadow: 0 0 25px -4px rgba(216, 241, 113, 0.18);
+    }
+    .glow-emerald {
+      box-shadow: 0 0 25px -4px rgba(16, 185, 129, 0.2);
+    }
+    .glow-blue {
+      box-shadow: 0 0 25px -4px rgba(59, 130, 246, 0.2);
     }
     @keyframes pulse-slow {
       0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.6; transform: scale(0.96); }
+      50% { opacity: 0.5; transform: scale(0.94); }
     }
     .pulse-slow {
-      animation: pulse-slow 2.5s infinite ease-in-out;
+      animation: pulse-slow 2s infinite ease-in-out;
+    }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0E110E;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #262D26;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #F05A36;
     }
   </style>
 </head>
 <body class="min-h-screen flex flex-col font-sans selection:bg-brand-orange selection:text-white">
 
   <!-- Top Navigation Header -->
-  <header class="border-b border-brand-border bg-brand-dark/90 backdrop-blur sticky top-0 z-50 px-6 py-4">
-    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-      <div class="flex items-center space-x-3">
-        <div class="w-10 h-10 rounded-xl bg-brand-orange flex items-center justify-center font-ethiopic text-white text-xl font-bold shadow-lg shadow-brand-orange/20">
-          ል
-        </div>
-        <div>
-          <div class="flex items-center space-x-2">
-            <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-              LISAN <span class="text-brand-orange font-ethiopic font-normal text-lg">ልሳን</span>
-              <span class="text-xs px-2 py-0.5 rounded-full bg-brand-border text-neutral-300 font-mono">APP ANALYTICS & FLEET</span>
-            </h1>
+  <header class="border-b border-brand-border bg-brand-dark/95 backdrop-blur sticky top-0 z-50 px-4 sm:px-6 py-3.5">
+    <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+      <div class="flex items-center space-x-3 w-full md:w-auto justify-between md:justify-start">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-orange to-orange-700 flex items-center justify-center font-ethiopic text-white text-xl font-bold shadow-lg shadow-brand-orange/25 ring-1 ring-white/20">
+            ል
           </div>
-          <p class="text-xs text-neutral-400">Device Installations, Active Users (DAU), Hardware Demographics & Offline Translation Fleet</p>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
+                LISAN <span class="text-brand-orange font-ethiopic font-normal text-base">ልሳን</span>
+              </h1>
+              <span class="text-[10px] px-2 py-0.5 rounded-full bg-brand-orange/15 text-brand-orange border border-brand-orange/30 font-mono font-semibold">
+                TELEMETRY HUB
+              </span>
+            </div>
+            <p class="text-[11px] text-neutral-400">Mobile Device Fleet, Edge Translation Analytics & AI Demographics</p>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2 md:hidden">
+          <span class="w-2.5 h-2.5 rounded-full bg-brand-acid pulse-slow"></span>
+          <span class="text-xs text-neutral-300 font-mono" id="connection-status-mobile">Live</span>
         </div>
       </div>
 
-      <!-- Controls & Status -->
-      <div class="flex items-center space-x-3">
-        <div class="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-brand-card border border-brand-border text-xs">
-          <span class="w-2.5 h-2.5 rounded-full bg-brand-acid pulse-slow inline-block"></span>
-          <span class="text-neutral-300 font-mono" id="connection-status">Live Connected</span>
+      <!-- Controls & Filter Toolbar -->
+      <div class="flex flex-wrap items-center justify-end gap-2.5 w-full md:w-auto">
+        
+        <!-- Live Connection Indicator -->
+        <div class="hidden md:flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-brand-card border border-brand-border text-xs">
+          <span class="w-2.5 h-2.5 rounded-full bg-brand-acid pulse-slow"></span>
+          <span class="text-neutral-300 font-mono" id="connection-status">Connected to Supabase</span>
         </div>
 
-        <button id="refresh-btn" onclick="fetchAnalytics()" class="px-3.5 py-1.5 rounded-lg bg-brand-card hover:bg-brand-cardHover border border-brand-border text-xs font-medium text-neutral-200 transition flex items-center space-x-1.5">
+        <!-- Sample Data Toggle Switch (To preview full statistical visuals anytime) -->
+        <div class="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-brand-card border border-brand-border text-xs">
+          <label for="demo-mode-toggle" class="text-neutral-400 font-mono text-[11px] cursor-pointer select-none">
+            Simulate Fleet
+          </label>
+          <input type="checkbox" id="demo-mode-toggle" onchange="toggleDemoMode()" class="w-4 h-4 rounded text-brand-orange focus:ring-0 focus:ring-offset-0 bg-brand-dark border-brand-border cursor-pointer">
+        </div>
+
+        <!-- Refresh Button -->
+        <button id="refresh-btn" onclick="fetchAnalytics()" class="px-3 py-1.5 rounded-xl bg-brand-card hover:bg-brand-cardHover border border-brand-border text-xs font-medium text-neutral-200 transition flex items-center space-x-1.5 active:scale-95">
           <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-brand-orange" id="refresh-icon"></i>
           <span>Refresh</span>
         </button>
 
-        <a href="https://github.com/ermizamr/LISAN" target="_blank" class="px-3 py-1.5 rounded-lg bg-brand-orange hover:bg-orange-600 text-white text-xs font-semibold transition flex items-center space-x-1.5">
+        <!-- Export CSV Button -->
+        <button onclick="exportCSV()" class="px-3 py-1.5 rounded-xl bg-brand-card hover:bg-brand-cardHover border border-brand-border text-xs font-medium text-neutral-200 transition flex items-center space-x-1.5">
+          <i data-lucide="download" class="w-3.5 h-3.5 text-brand-acid"></i>
+          <span>Export CSV</span>
+        </button>
+
+        <!-- Telegram Bot Link -->
+        <a href="https://t.me/LisanAiEtBot" target="_blank" class="px-3 py-1.5 rounded-xl bg-[#2AABEE]/15 hover:bg-[#2AABEE]/25 border border-[#2AABEE]/30 text-[#2AABEE] text-xs font-semibold transition flex items-center space-x-1.5">
+          <i data-lucide="send" class="w-3.5 h-3.5"></i>
+          <span>@LisanAiEtBot</span>
+        </a>
+
+        <!-- GitHub -->
+        <a href="https://github.com/ermizamr/LISAN" target="_blank" class="px-3 py-1.5 rounded-xl bg-brand-orange hover:bg-orange-600 text-white text-xs font-semibold transition flex items-center space-x-1.5 shadow-sm shadow-brand-orange/30">
           <i data-lucide="github" class="w-3.5 h-3.5"></i>
           <span>GitHub</span>
         </a>
@@ -96,123 +150,175 @@
     </div>
   </header>
 
-  <!-- Main Content Container -->
-  <main class="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+  <!-- Main Content Dashboard -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
 
-    <!-- KPI Metric Cards Grid (6 Cards) -->
+    <!-- Filter & Aggregation Bar -->
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-brand-card border border-brand-border">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-xs font-mono text-neutral-400 flex items-center gap-1.5 mr-1">
+          <i data-lucide="filter" class="w-3.5 h-3.5 text-brand-orange"></i> Filter View:
+        </span>
+        <button onclick="setTimeFilter('all')" id="filter-btn-all" class="filter-btn px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition bg-brand-orange text-white">All Time</button>
+        <button onclick="setTimeFilter('7d')" id="filter-btn-7d" class="filter-btn px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition bg-brand-dark text-neutral-400 hover:text-white border border-brand-border">Past 7 Days</button>
+        <button onclick="setTimeFilter('24h')" id="filter-btn-24h" class="filter-btn px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition bg-brand-dark text-neutral-400 hover:text-white border border-brand-border">Today (24h)</button>
+      </div>
+
+      <div class="flex items-center space-x-3 text-xs text-neutral-400 font-mono">
+        <span class="flex items-center gap-1">
+          <i data-lucide="clock" class="w-3.5 h-3.5 text-neutral-500"></i> Auto-Sync:
+        </span>
+        <select id="auto-refresh-select" onchange="updateAutoRefresh()" class="bg-brand-dark border border-brand-border rounded-lg px-2.5 py-1 text-neutral-200 focus:outline-none text-xs">
+          <option value="5000">Every 5 sec</option>
+          <option value="15000" selected>Every 15 sec</option>
+          <option value="60000">Every 1 min</option>
+          <option value="0">Manual only</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- 6 Executive KPI Cards with Visual Progress & Sub-Stats -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
       
       <!-- 1. Total Device Installs -->
-      <div class="p-5 rounded-2xl bg-brand-card border border-brand-border hover:border-brand-orange/40 transition glow-orange">
-        <div class="flex items-center justify-between text-neutral-400 mb-2">
-          <span class="text-[11px] font-semibold uppercase tracking-wider">Total Installs</span>
-          <div class="w-7 h-7 rounded-lg bg-brand-orange/15 text-brand-orange flex items-center justify-center">
-            <i data-lucide="download" class="w-4 h-4"></i>
+      <div class="p-4 rounded-2xl bg-brand-card border border-brand-border hover:border-brand-orange/50 transition glow-orange flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between text-neutral-400 mb-1.5">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Total Installs</span>
+            <div class="w-6 h-6 rounded-lg bg-brand-orange/20 text-brand-orange flex items-center justify-center">
+              <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
+            </div>
           </div>
+          <div class="text-2xl font-extrabold text-white font-mono tracking-tight" id="stat-total-installs">--</div>
         </div>
-        <div class="text-2xl font-extrabold text-white font-mono" id="stat-total-installs">--</div>
-        <div class="mt-2 text-[11px] text-neutral-400">
-          <span>Unique Devices Installed</span>
+        <div class="mt-3 pt-2.5 border-t border-brand-border/60 text-[11px] text-neutral-400 flex items-center justify-between">
+          <span>Unique Devices</span>
+          <span class="text-brand-acid font-mono font-semibold" id="stat-installs-badge">Registered</span>
         </div>
       </div>
 
-      <!-- 2. Active Today (DAU) -->
-      <div class="p-5 rounded-2xl bg-brand-card border border-brand-border hover:border-emerald-500/40 transition">
-        <div class="flex items-center justify-between text-neutral-400 mb-2">
-          <span class="text-[11px] font-semibold uppercase tracking-wider">Active Today (DAU)</span>
-          <div class="w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center">
-            <i data-lucide="activity" class="w-4 h-4"></i>
+      <!-- 2. Active Fleet (DAU & WAU) -->
+      <div class="p-4 rounded-2xl bg-brand-card border border-brand-border hover:border-emerald-500/50 transition glow-emerald flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between text-neutral-400 mb-1.5">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Active Today (DAU)</span>
+            <div class="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+              <i data-lucide="activity" class="w-3.5 h-3.5"></i>
+            </div>
           </div>
+          <div class="text-2xl font-extrabold text-emerald-400 font-mono tracking-tight" id="stat-active-today">--</div>
         </div>
-        <div class="text-2xl font-extrabold text-emerald-400 font-mono" id="stat-active-today">--</div>
-        <div class="mt-2 text-[11px] text-neutral-400">
-          <span id="stat-active-7d">-- active this week</span>
+        <div class="mt-3 pt-2.5 border-t border-brand-border/60 text-[11px] text-neutral-400 flex items-center justify-between">
+          <span id="stat-active-7d">-- WAU</span>
+          <span class="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 font-mono text-[10px]" id="stat-dau-ratio">--% DAU</span>
         </div>
       </div>
 
-      <!-- 3. Returning Retention Rate -->
-      <div class="p-5 rounded-2xl bg-brand-card border border-brand-border hover:border-brand-acid/40 transition glow-acid">
-        <div class="flex items-center justify-between text-neutral-400 mb-2">
-          <span class="text-[11px] font-semibold uppercase tracking-wider">Retention Rate</span>
-          <div class="w-7 h-7 rounded-lg bg-brand-acid/15 text-brand-acid flex items-center justify-center">
-            <i data-lucide="repeat" class="w-4 h-4"></i>
+      <!-- 3. User Retention & Loyalty -->
+      <div class="p-4 rounded-2xl bg-brand-card border border-brand-border hover:border-brand-acid/50 transition glow-acid flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between text-neutral-400 mb-1.5">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Retention Rate</span>
+            <div class="w-6 h-6 rounded-lg bg-brand-acid/20 text-brand-acid flex items-center justify-center">
+              <i data-lucide="repeat" class="w-3.5 h-3.5"></i>
+            </div>
           </div>
+          <div class="text-2xl font-extrabold text-brand-acid font-mono tracking-tight" id="stat-retention-rate">--%</div>
         </div>
-        <div class="text-2xl font-extrabold text-brand-acid font-mono" id="stat-retention-rate">--%</div>
-        <div class="mt-2 text-[11px] text-neutral-400">
+        <div class="mt-3 pt-2.5 border-t border-brand-border/60 text-[11px] text-neutral-400 flex items-center justify-between">
           <span>Multi-Session Users</span>
+          <span class="text-neutral-200 font-mono font-semibold" id="stat-returning-count">-- dev</span>
         </div>
       </div>
 
       <!-- 4. Total Translations -->
-      <div class="p-5 rounded-2xl bg-brand-card border border-brand-border hover:border-neutral-700 transition">
-        <div class="flex items-center justify-between text-neutral-400 mb-2">
-          <span class="text-[11px] font-semibold uppercase tracking-wider">Translations</span>
-          <div class="w-7 h-7 rounded-lg bg-blue-500/15 text-blue-400 flex items-center justify-center">
-            <i data-lucide="languages" class="w-4 h-4"></i>
+      <div class="p-4 rounded-2xl bg-brand-card border border-brand-border hover:border-blue-500/50 transition glow-blue flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between text-neutral-400 mb-1.5">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Translations</span>
+            <div class="w-6 h-6 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center">
+              <i data-lucide="languages" class="w-3.5 h-3.5"></i>
+            </div>
           </div>
+          <div class="text-2xl font-extrabold text-white font-mono tracking-tight" id="stat-total-translations">--</div>
         </div>
-        <div class="text-2xl font-extrabold text-white font-mono" id="stat-total-translations">--</div>
-        <div class="mt-2 text-[11px] text-neutral-400">
-          <span class="text-white font-semibold" id="stat-voice-share">--% Voice</span>
+        <div class="mt-3 pt-2.5 border-t border-brand-border/60 text-[11px] text-neutral-400 flex items-center justify-between">
+          <span>Voice vs Text</span>
+          <span class="text-blue-400 font-mono font-semibold" id="stat-voice-share">--% Voice</span>
         </div>
       </div>
 
-      <!-- 5. On-Device Offline Ratio -->
-      <div class="p-5 rounded-2xl bg-brand-card border border-brand-border hover:border-neutral-700 transition">
-        <div class="flex items-center justify-between text-neutral-400 mb-2">
-          <span class="text-[11px] font-semibold uppercase tracking-wider">Offline Execution</span>
-          <div class="w-7 h-7 rounded-lg bg-yellow-500/15 text-yellow-400 flex items-center justify-center">
-            <i data-lucide="cpu" class="w-4 h-4"></i>
+      <!-- 5. Edge Offline Independence -->
+      <div class="p-4 rounded-2xl bg-brand-card border border-brand-border hover:border-yellow-500/50 transition flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between text-neutral-400 mb-1.5">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Offline Edge Ratio</span>
+            <div class="w-6 h-6 rounded-lg bg-yellow-500/20 text-yellow-400 flex items-center justify-center">
+              <i data-lucide="cpu" class="w-3.5 h-3.5"></i>
+            </div>
           </div>
+          <div class="text-2xl font-extrabold text-yellow-400 font-mono tracking-tight" id="stat-offline-pct">--%</div>
         </div>
-        <div class="text-2xl font-extrabold text-white font-mono" id="stat-offline-pct">--%</div>
-        <div class="mt-2 text-[11px] text-neutral-400">
-          <span id="stat-offline-count">--</span> On-Device NLLB
+        <div class="mt-3 pt-2.5 border-t border-brand-border/60 text-[11px] text-neutral-400 flex items-center justify-between">
+          <span id="stat-offline-count">-- On-Device</span>
+          <span class="text-neutral-400 font-mono text-[10px]" id="stat-bandwidth-saved">~0 KB saved</span>
         </div>
       </div>
 
-      <!-- 6. Average Latency -->
-      <div class="p-5 rounded-2xl bg-brand-card border border-brand-border hover:border-neutral-700 transition">
-        <div class="flex items-center justify-between text-neutral-400 mb-2">
-          <span class="text-[11px] font-semibold uppercase tracking-wider">Avg Latency</span>
-          <div class="w-7 h-7 rounded-lg bg-purple-500/15 text-purple-400 flex items-center justify-center">
-            <i data-lucide="gauge" class="w-4 h-4"></i>
+      <!-- 6. Real-Time Latency -->
+      <div class="p-4 rounded-2xl bg-brand-card border border-brand-border hover:border-purple-500/50 transition flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between text-neutral-400 mb-1.5">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Avg Latency</span>
+            <div class="w-6 h-6 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center">
+              <i data-lucide="gauge" class="w-3.5 h-3.5"></i>
+            </div>
+          </div>
+          <div class="text-2xl font-extrabold text-white font-mono tracking-tight">
+            <span id="stat-avg-latency">--</span> <span class="text-xs font-normal text-neutral-400">ms</span>
           </div>
         </div>
-        <div class="text-2xl font-extrabold text-white font-mono" id="stat-avg-latency">-- <span class="text-xs font-normal text-neutral-400">ms</span></div>
-        <div class="mt-2 text-[11px] text-neutral-400">
-          <span>TTS: <b class="text-white" id="stat-tts-count">--</b></span>
+        <div class="mt-3 pt-2.5 border-t border-brand-border/60 text-[11px] text-neutral-400 flex items-center justify-between">
+          <span id="stat-p50-latency">P50: -- ms</span>
+          <span class="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-mono text-[10px]" id="stat-latency-tag">⚡ Edge Fast</span>
         </div>
       </div>
 
     </div>
 
-    <!-- Charts Row -->
+    <!-- Statistical Chart Grid Row 1 (Timeline + Execution Doughnuts) -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       
-      <!-- Language Pairs Distribution (2 cols) -->
+      <!-- 1. Activity Velocity & Translation Timeline (2 Cols) -->
       <div class="lg:col-span-2 p-5 rounded-2xl bg-brand-card border border-brand-border flex flex-col justify-between">
-        <div class="flex items-center justify-between mb-4">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-4">
           <div>
-            <h3 class="text-sm font-bold text-white uppercase tracking-wider">Directional Language Pair Flows</h3>
-            <p class="text-xs text-neutral-400">Amharic, Afaan Oromoo, Tigrinya, Somali, and English frequency</p>
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <i data-lucide="trending-up" class="w-4 h-4 text-brand-orange"></i>
+              <span>Translation & Installation Activity Timeline</span>
+            </h3>
+            <p class="text-xs text-neutral-400">Chronological volume of mobile events, translation sessions, and new installs</p>
           </div>
-          <span class="text-xs px-2.5 py-1 rounded bg-brand-border/60 text-neutral-300 font-mono">Live Ingest</span>
+          <span class="text-xs px-2.5 py-1 rounded-lg bg-brand-border/60 text-neutral-300 font-mono">Hourly Velocity</span>
         </div>
         <div class="relative h-64 w-full">
-          <canvas id="langPairsChart"></canvas>
+          <canvas id="timelineChart"></canvas>
         </div>
       </div>
 
-      <!-- Execution Mode Breakdown (1 col) -->
+      <!-- 2. Execution Pipeline & Modality Breakdown (1 Col) -->
       <div class="p-5 rounded-2xl bg-brand-card border border-brand-border flex flex-col justify-between">
         <div class="flex items-center justify-between mb-4">
           <div>
-            <h3 class="text-sm font-bold text-white uppercase tracking-wider">Execution Pipeline</h3>
-            <p class="text-xs text-neutral-400">On-Device INT8 vs Cloud API</p>
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <i data-lucide="pie-chart" class="w-4 h-4 text-brand-acid"></i>
+              <span>Execution Architecture</span>
+            </h3>
+            <p class="text-xs text-neutral-400">Edge INT8 NLLB vs Cloud Server API</p>
           </div>
-          <i data-lucide="pie-chart" class="w-4 h-4 text-neutral-400"></i>
+          <span class="text-xs px-2 py-0.5 rounded bg-brand-acid/15 text-brand-acid font-mono font-semibold" id="pipeline-dominant-tag">
+            100% Offline
+          </span>
         </div>
         <div class="relative h-64 w-full flex items-center justify-center">
           <canvas id="modeChart"></canvas>
@@ -221,39 +327,153 @@
 
     </div>
 
-    <!-- Installed Device Fleet Inventory -->
+    <!-- Statistical Chart Grid Row 2 (Directional Language Flow Matrix + Latency Distribution + Scenarios) -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- 3. Directional Language Flow Matrix -->
+      <div class="p-5 rounded-2xl bg-brand-card border border-brand-border flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <i data-lucide="git-commit" class="w-4 h-4 text-brand-orange"></i>
+              <span>Language Pair Flows</span>
+            </h3>
+            <p class="text-xs text-neutral-400">Top cross-lingual directions translated</p>
+          </div>
+          <span class="text-xs text-neutral-400 font-mono" id="top-pair-count">0 Pairs</span>
+        </div>
+        <div class="relative h-64 w-full">
+          <canvas id="langPairsChart"></canvas>
+        </div>
+      </div>
+
+      <!-- 4. Latency Distribution & Performance Buckets -->
+      <div class="p-5 rounded-2xl bg-brand-card border border-brand-border flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <i data-lucide="zap" class="w-4 h-4 text-yellow-400"></i>
+              <span>Latency Distribution</span>
+            </h3>
+            <p class="text-xs text-neutral-400">Response speed profile in milliseconds</p>
+          </div>
+          <span class="text-xs px-2 py-0.5 rounded bg-yellow-400/15 text-yellow-400 font-mono" id="latency-p95-badge">
+            P95: -- ms
+          </span>
+        </div>
+        <div class="relative h-64 w-full">
+          <canvas id="latencyDistChart"></canvas>
+        </div>
+      </div>
+
+      <!-- 5. Specialized Domain Scenarios (Clinic, Kebele, Market, Police, General) -->
+      <div class="p-5 rounded-2xl bg-brand-card border border-brand-border flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <i data-lucide="compass" class="w-4 h-4 text-blue-400"></i>
+              <span>Specialized Scenarios</span>
+            </h3>
+            <p class="text-xs text-neutral-400">Domain contexts used in translation sessions</p>
+          </div>
+          <span class="text-xs text-neutral-400 font-mono">Domain AI</span>
+        </div>
+        <div class="relative h-64 w-full">
+          <canvas id="scenarioChart"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Hardware Demographics & Fleet Demographics Banner -->
+    <div class="p-5 rounded-2xl bg-brand-card border border-brand-border space-y-4">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div>
+          <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <i data-lucide="layers" class="w-4 h-4 text-purple-400"></i>
+            <span>Mobile Hardware Demographics & Regional Locales</span>
+          </h3>
+          <p class="text-xs text-neutral-400">Smartphones running LISAN, Android OS generations, and regional device languages</p>
+        </div>
+        <div class="flex items-center space-x-2 text-xs font-mono text-neutral-400">
+          <span class="text-brand-acid font-bold" id="platform-count-tag">1 Platform</span>
+          <span>•</span>
+          <span class="text-brand-orange font-bold" id="locales-count-tag">1 Locale</span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4" id="demographics-grid">
+        <!-- OS Versions Bar -->
+        <div class="p-4 rounded-xl bg-brand-dark/70 border border-brand-border/60">
+          <span class="text-[11px] font-mono text-neutral-400 uppercase tracking-wider block mb-2">Android OS Versions</span>
+          <div id="os-versions-list" class="space-y-2 text-xs">
+            <div class="flex justify-between text-neutral-300 font-mono"><span>Android 14</span><span class="text-brand-acid font-bold">100%</span></div>
+            <div class="w-full bg-brand-border rounded-full h-1.5"><div class="bg-brand-acid h-1.5 rounded-full" style="width: 100%"></div></div>
+          </div>
+        </div>
+
+        <!-- Regional Locales -->
+        <div class="p-4 rounded-xl bg-brand-dark/70 border border-brand-border/60">
+          <span class="text-[11px] font-mono text-neutral-400 uppercase tracking-wider block mb-2">Device System Locales</span>
+          <div id="locales-list" class="space-y-2 text-xs">
+            <div class="flex justify-between text-neutral-300 font-mono"><span>am_ET (Amharic)</span><span class="text-brand-orange font-bold">100%</span></div>
+            <div class="w-full bg-brand-border rounded-full h-1.5"><div class="bg-brand-orange h-1.5 rounded-full" style="width: 100%"></div></div>
+          </div>
+        </div>
+
+        <!-- Audio & Neural Voice Synthesis Stats -->
+        <div class="p-4 rounded-xl bg-brand-dark/70 border border-brand-border/60 flex flex-col justify-between">
+          <span class="text-[11px] font-mono text-neutral-400 uppercase tracking-wider block mb-1">AfriHuBERT & VITS Voice AI</span>
+          <div class="space-y-1.5 text-xs">
+            <div class="flex justify-between"><span class="text-neutral-400">Audio Translated:</span><span class="font-mono text-white font-bold" id="stat-audio-time">-- sec</span></div>
+            <div class="flex justify-between"><span class="text-neutral-400">TTS Audio Plays:</span><span class="font-mono text-brand-acid font-bold" id="stat-tts-total">--</span></div>
+            <div class="flex justify-between"><span class="text-neutral-400">Bandwidth Saved:</span><span class="font-mono text-emerald-400 font-bold" id="stat-edge-savings">-- KB</span></div>
+          </div>
+          <div class="text-[10px] text-neutral-500 font-mono mt-2">Zero cloud dependencies in offline mode</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Installed Device Fleet Inventory with Live Search -->
     <div class="p-5 rounded-2xl bg-brand-card border border-brand-border space-y-4">
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
             <i data-lucide="smartphone" class="w-4 h-4 text-brand-orange"></i>
             <span>Device Fleet & Installation Inventory</span>
-            <span class="text-xs px-2 py-0.5 rounded-full bg-brand-orange/20 text-brand-orange font-mono font-medium" id="device-fleet-count">-- Devices</span>
+            <span class="text-xs px-2.5 py-0.5 rounded-full bg-brand-orange/20 text-brand-orange font-mono font-semibold" id="device-fleet-count">-- Devices</span>
           </h3>
-          <p class="text-xs text-neutral-400">Individual smartphones with LISAN installed, tracking sessions, OS versions, and retention status</p>
+          <p class="text-xs text-neutral-400">Unique smartphones with persistent installation IDs, tracking multi-session activity and translation counts</p>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="relative w-full sm:w-64">
+          <input type="text" id="fleet-search-input" oninput="filterFleetTable()" placeholder="Search device, OS, locale..." class="w-full bg-brand-dark border border-brand-border rounded-xl px-3 py-1.5 pl-8 text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-brand-orange/60 font-mono">
+          <i data-lucide="search" class="w-3.5 h-3.5 text-neutral-500 absolute left-2.5 top-2.5"></i>
         </div>
       </div>
 
       <div class="overflow-x-auto rounded-xl border border-brand-border/60">
         <table class="w-full text-left text-xs">
-          <thead class="bg-brand-dark/80 text-neutral-400 uppercase font-mono text-[10px] tracking-wider border-b border-brand-border">
+          <thead class="bg-brand-dark/90 text-neutral-400 uppercase font-mono text-[10px] tracking-wider border-b border-brand-border">
             <tr>
               <th class="py-3 px-4">Device ID</th>
-              <th class="py-3 px-4">Platform & OS</th>
-              <th class="py-3 px-4">Device Locale</th>
+              <th class="py-3 px-4">Hardware & OS</th>
+              <th class="py-3 px-4">Locale</th>
               <th class="py-3 px-4">Timezone</th>
-              <th class="py-3 px-4">Total Sessions</th>
+              <th class="py-3 px-4">Sessions</th>
               <th class="py-3 px-4">Translations Done</th>
-              <th class="py-3 px-4">First Installed</th>
+              <th class="py-3 px-4">First Registered</th>
+              <th class="py-3 px-4">Last Active</th>
               <th class="py-3 px-4">Status</th>
             </tr>
           </thead>
           <tbody id="device-fleet-table-body" class="divide-y divide-brand-border/40 font-mono">
             <tr>
-              <td colspan="8" class="text-center py-6 text-neutral-500">
+              <td colspan="9" class="text-center py-8 text-neutral-500">
                 <div class="flex items-center justify-center space-x-2">
                   <i data-lucide="loader-2" class="w-4 h-4 animate-spin text-brand-orange"></i>
-                  <span>Loading device fleet inventory...</span>
+                  <span>Syncing device fleet inventory from Supabase...</span>
                 </div>
               </td>
             </tr>
@@ -262,49 +482,45 @@
       </div>
     </div>
 
-    <!-- Live Telemetry Stream Table -->
+    <!-- Live Telemetry Stream Table with JSON Inspector -->
     <div class="p-5 rounded-2xl bg-brand-card border border-brand-border space-y-4">
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
             <i data-lucide="radio" class="w-4 h-4 text-brand-acid"></i>
-            <span>Live Telemetry Activity Feed</span>
+            <span>Live Telemetry Activity Stream</span>
             <span class="text-xs px-2 py-0.5 rounded-full bg-brand-acid/20 text-brand-acid font-mono font-medium">Real-Time</span>
           </h3>
-          <p class="text-xs text-neutral-400">Chronological feed of incoming mobile events and translations</p>
+          <p class="text-xs text-neutral-400">Chronological feed of incoming events, translation prompts, latency benchmarks, and errors</p>
         </div>
 
-        <div class="flex items-center space-x-2 text-xs text-neutral-400 font-mono">
-          <span>Auto-refresh:</span>
-          <select id="auto-refresh-select" onchange="updateAutoRefresh()" class="bg-brand-dark border border-brand-border rounded px-2 py-1 text-neutral-200 focus:outline-none">
-            <option value="5000">5 seconds</option>
-            <option value="15000" selected>15 seconds</option>
-            <option value="60000">1 minute</option>
-            <option value="0">Off</option>
-          </select>
+        <div class="flex items-center space-x-2 text-xs font-mono text-neutral-400">
+          <span>Events Logged:</span>
+          <span class="text-white font-bold" id="total-events-count">--</span>
         </div>
       </div>
 
       <div class="overflow-x-auto rounded-xl border border-brand-border/60">
         <table class="w-full text-left text-xs">
-          <thead class="bg-brand-dark/80 text-neutral-400 uppercase font-mono text-[10px] tracking-wider border-b border-brand-border">
+          <thead class="bg-brand-dark/90 text-neutral-400 uppercase font-mono text-[10px] tracking-wider border-b border-brand-border">
             <tr>
               <th class="py-3 px-4">Time (UTC)</th>
               <th class="py-3 px-4">Device ID</th>
               <th class="py-3 px-4">Event</th>
-              <th class="py-3 px-4">Language Flow</th>
+              <th class="py-3 px-4">Directional Flow</th>
               <th class="py-3 px-4">Modality</th>
-              <th class="py-3 px-4">Pipeline</th>
+              <th class="py-3 px-4">Execution Mode</th>
               <th class="py-3 px-4">Latency</th>
-              <th class="py-3 px-4">Platform</th>
+              <th class="py-3 px-4">Scenario</th>
+              <th class="py-3 px-4 text-right">Inspect</th>
             </tr>
           </thead>
           <tbody id="telemetry-table-body" class="divide-y divide-brand-border/40 font-mono">
             <tr>
-              <td colspan="8" class="text-center py-6 text-neutral-500">
+              <td colspan="9" class="text-center py-8 text-neutral-500">
                 <div class="flex items-center justify-center space-x-2">
                   <i data-lucide="loader-2" class="w-4 h-4 animate-spin text-brand-orange"></i>
-                  <span>Fetching live telemetry records from Supabase...</span>
+                  <span>Streaming live telemetry records from Supabase...</span>
                 </div>
               </td>
             </tr>
@@ -315,64 +531,230 @@
 
   </main>
 
+  <!-- Event JSON Payload Modal -->
+  <div id="payload-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="max-w-2xl w-full bg-brand-card border border-brand-border rounded-2xl p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-brand-border pb-3">
+        <h4 class="text-sm font-bold text-white font-mono flex items-center gap-2">
+          <i data-lucide="file-json" class="w-4 h-4 text-brand-orange"></i>
+          <span>Telemetry Payload Inspector</span>
+        </h4>
+        <button onclick="closePayloadModal()" class="text-neutral-400 hover:text-white p-1 rounded-lg hover:bg-brand-dark">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div class="overflow-x-auto max-h-96 rounded-xl bg-brand-dark p-4 border border-brand-border text-xs font-mono text-brand-acid">
+        <pre id="modal-json-content">Loading...</pre>
+      </div>
+      <div class="flex justify-end">
+        <button onclick="closePayloadModal()" class="px-4 py-1.5 rounded-xl bg-brand-border text-xs font-semibold text-neutral-200 hover:bg-neutral-700 transition">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Footer -->
-  <footer class="border-t border-brand-border py-4 px-6 text-center text-xs text-neutral-500 font-mono">
-    LISAN AI Project • Open Source Multilingual Engine for Ethiopian & Horn of Africa Languages • 2026
+  <footer class="border-t border-brand-border py-6 px-6 text-center text-xs text-neutral-500 font-mono space-y-1">
+    <div>LISAN AI Project • Open Source Multilingual Engine for Ethiopian & Horn of Africa Languages • 2026</div>
+    <div class="text-[11px] text-neutral-600">Amharic (አማርኛ) • Afaan Oromoo • Tigrinya (ትግርኛ) • Somali (Soomaali) • English</div>
   </footer>
 
-  <!-- Dashboard JavaScript Logic -->
+  <!-- Dashboard Engine Logic -->
   <script>
-    let langChartInstance = null;
+    // Chart instances
+    let timelineChartInstance = null;
     let modeChartInstance = null;
+    let langChartInstance = null;
+    let latencyChartInstance = null;
+    let scenarioChartInstance = null;
+
     let autoRefreshTimer = null;
+    let activeTimeFilter = 'all';
+    let isDemoMode = false;
+    let currentRawEvents = [];
+    let currentFleetData = [];
 
     const SUPABASE_URL = "https://xknxnycwrkffmxcwqxjs.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrbnhueWN3cmtmZm14Y3dxeGpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwODM5MTQsImV4cCI6MjEwNzY1OTkxNH0.5MgXgdhAtUggyNnCpL94EcjmR5JrAs74fiYK0BjUDaM";
+
+    // Synthetic fleet generator for previewing rich statistical distribution anytime
+    function generateSimulatedFleetData() {
+      const models = ['Google Pixel 7', 'Samsung Galaxy A14', 'Tecno Spark 10', 'Infinix Hot 30', 'Xiaomi Redmi 12', 'Samsung Galaxy S22'];
+      const osVersions = ['Android 14', 'Android 13', 'Android 12', 'Android 11'];
+      const locales = ['am_ET', 'om_ET', 'ti_ET', 'so_ET', 'en_US'];
+      const pairs = [
+        ['amh', 'orm'], ['orm', 'amh'], ['eng', 'amh'], ['amh', 'eng'], 
+        ['tir', 'amh'], ['som', 'amh'], ['orm', 'eng'], ['eng', 'orm']
+      ];
+      const scenarios = ['clinic', 'clinic', 'kebele', 'market', 'general', 'police'];
+      
+      const events = [];
+      const now = new Date();
+
+      for (let i = 1; i <= 24; i++) {
+        const deviceId = `lisan_device_eth_${1000 + i}`;
+        const model = models[i % models.length];
+        const os = osVersions[i % osVersions.length];
+        const loc = locales[i % locales.length];
+
+        // 1. App install event
+        const installHoursAgo = (25 - i) * 6;
+        const installTime = new Date(now.getTime() - installHoursAgo * 60 * 60 * 1000);
+        events.push({
+          id: events.length + 1,
+          device_id: deviceId,
+          session_id: `sess_${i}_init`,
+          event_type: 'app_install',
+          source_lang: 'amh',
+          target_lang: 'orm',
+          input_type: 'voice',
+          mode: 'offline_nmt',
+          latency_ms: 0,
+          scenario: 'clinic',
+          platform: 'android',
+          app_version: '1.0.0',
+          metadata: { brand: model.split(' ')[0], model: model, os_version: os, locale: loc, timezone: 'Africa/Addis_Ababa' },
+          created_at: installTime.toISOString()
+        });
+
+        // 2. Generate translation sessions
+        const transCount = (i % 6) + 2;
+        for (let j = 0; j < transCount; j++) {
+          const pair = pairs[(i + j) % pairs.length];
+          const scenario = scenarios[(i + j) % scenarios.length];
+          const isVoice = (i + j) % 3 !== 0; // ~66% voice
+          const isOffline = (i + j) % 5 !== 0; // ~80% offline NLLB
+          const latency = isOffline ? Math.floor(180 + Math.random() * 220) : Math.floor(650 + Math.random() * 500);
+          const eventHoursAgo = Math.max(0, (25 - i) * 2 - j);
+          const eventTime = new Date(now.getTime() - eventHoursAgo * 60 * 60 * 1000);
+
+          events.push({
+            id: events.length + 1,
+            device_id: deviceId,
+            session_id: `sess_${i}_${j}`,
+            event_type: 'translation',
+            source_lang: pair[0],
+            target_lang: pair[1],
+            input_type: isVoice ? 'voice' : 'text',
+            mode: isOffline ? 'offline_nmt' : 'server_api',
+            latency_ms: latency,
+            scenario: scenario,
+            platform: 'android',
+            app_version: '1.0.0',
+            metadata: {
+              brand: model.split(' ')[0],
+              model: model,
+              os_version: os,
+              locale: loc,
+              audio_duration_sec: isVoice ? (2.0 + Math.random() * 3).toFixed(1) : 0,
+              timezone: 'Africa/Addis_Ababa'
+            },
+            created_at: eventTime.toISOString()
+          });
+
+          // occasional TTS play
+          if (j % 2 === 0) {
+            events.push({
+              id: events.length + 1,
+              device_id: deviceId,
+              session_id: `sess_${i}_${j}`,
+              event_type: 'tts_played',
+              source_lang: pair[0],
+              target_lang: pair[1],
+              input_type: 'voice',
+              mode: 'offline_nmt',
+              latency_ms: Math.floor(120 + Math.random() * 80),
+              scenario: scenario,
+              platform: 'android',
+              app_version: '1.0.0',
+              metadata: { locale: loc },
+              created_at: eventTime.toISOString()
+            });
+          }
+        }
+      }
+
+      // Sort newest first
+      events.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      return events;
+    }
+
+    function toggleDemoMode() {
+      const chk = document.getElementById('demo-mode-toggle');
+      isDemoMode = chk.checked;
+      fetchAnalytics();
+    }
+
+    function setTimeFilter(filter) {
+      activeTimeFilter = filter;
+      document.querySelectorAll('.filter-btn').forEach(b => {
+        b.className = 'filter-btn px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition bg-brand-dark text-neutral-400 hover:text-white border border-brand-border';
+      });
+      const activeBtn = document.getElementById(`filter-btn-${filter}`);
+      if (activeBtn) {
+        activeBtn.className = 'filter-btn px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition bg-brand-orange text-white';
+      }
+      fetchAnalytics();
+    }
 
     async function fetchAnalytics() {
       const refreshIcon = document.getElementById('refresh-icon');
       if (refreshIcon) refreshIcon.classList.add('animate-spin');
 
       try {
-        let summary = null;
-        try {
-          const localRes = await fetch('/api/analytics/summary').catch(() => null);
-          if (localRes && localRes.ok) {
-            summary = await localRes.json();
-          }
-        } catch (_) {}
+        let rows = [];
 
-        if (!summary) {
-          summary = await fetchDirectFromSupabase();
+        if (isDemoMode) {
+          rows = generateSimulatedFleetData();
+        } else {
+          // Direct fetch from Supabase dedicated app_analytics table
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/app_analytics?select=*&order=created_at.desc&limit=500`, {
+            headers: {
+              apikey: SUPABASE_KEY,
+              Authorization: `Bearer ${SUPABASE_KEY}`
+            }
+          });
+          if (res.ok) {
+            rows = await res.json();
+          }
         }
 
-        renderDashboard(summary);
-        document.getElementById('connection-status').textContent = 'Live Connected';
-        document.getElementById('connection-status').className = 'text-brand-acid font-mono';
+        // Apply Time Filter
+        const now = new Date();
+        let filteredRows = rows;
+        if (activeTimeFilter === '24h') {
+          const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          filteredRows = rows.filter(r => r.created_at && new Date(r.created_at) >= cutoff);
+        } else if (activeTimeFilter === '7d') {
+          const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          filteredRows = rows.filter(r => r.created_at && new Date(r.created_at) >= cutoff);
+        }
+
+        currentRawEvents = filteredRows;
+        const processed = processMetrics(filteredRows, rows);
+        currentFleetData = processed.device_inventory;
+
+        renderDashboard(processed);
+
+        const statusEl = document.getElementById('connection-status');
+        if (statusEl) {
+          statusEl.textContent = isDemoMode ? 'Simulated Fleet Mode (Preview)' : 'Live Connected to Supabase';
+          statusEl.className = isDemoMode ? 'text-yellow-400 font-mono' : 'text-brand-acid font-mono';
+        }
       } catch (err) {
-        console.error('Analytics fetch error:', err);
-        document.getElementById('connection-status').textContent = 'Reconnecting...';
-        document.getElementById('connection-status').className = 'text-amber-400 font-mono';
+        console.error('Fetch error:', err);
+        const statusEl = document.getElementById('connection-status');
+        if (statusEl) {
+          statusEl.textContent = 'Connection Error / Retrying...';
+          statusEl.className = 'text-amber-400 font-mono';
+        }
       } finally {
         if (refreshIcon) refreshIcon.classList.remove('animate-spin');
       }
     }
 
-    async function fetchDirectFromSupabase() {
-      let rows = [];
-      try {
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/app_analytics?select=*&order=created_at.desc&limit=500`, {
-          headers: {
-            apikey: SUPABASE_KEY,
-            Authorization: `Bearer ${SUPABASE_KEY}`
-          }
-        });
-        if (res.ok) {
-          rows = await res.json();
-        }
-      } catch (_) {}
-
-      // Aggregate DAU / WAU
+    function processMetrics(filteredRows, allRows) {
       const now = new Date();
       const cutoff24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
       const cutoff7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -381,7 +763,7 @@
       const devices7d = new Set();
       const deviceMap = {};
 
-      rows.forEach(r => {
+      allRows.forEach(r => {
         const did = r.device_id;
         if (!did || did === 'unknown_device') return;
 
@@ -392,12 +774,14 @@
         }
 
         if (!deviceMap[did]) {
+          const meta = r.metadata || {};
           deviceMap[did] = {
             device_id: did,
             platform: r.platform || 'android',
-            os_version: (r.metadata && r.metadata.os_version) || 'Mobile OS',
-            locale: (r.metadata && r.metadata.locale) || 'am_ET',
-            timezone: (r.metadata && r.metadata.timezone) || 'EAT',
+            hardware: meta.model || meta.brand || 'Android Smartphone',
+            os_version: meta.os_version || 'Android 14',
+            locale: meta.locale || 'am_ET',
+            timezone: meta.timezone || 'Africa/Addis_Ababa',
             first_seen: r.created_at,
             last_seen: r.created_at,
             total_translations: 0,
@@ -408,7 +792,7 @@
 
         const dev = deviceMap[did];
         if (r.event_type === 'translation') dev.total_translations++;
-        if (r.event_type === 'session_start') dev.total_sessions++;
+        if (r.event_type === 'session_start' || r.event_type === 'app_install') dev.total_sessions++;
         if (r.created_at) {
           if (!dev.last_seen || r.created_at > dev.last_seen) dev.last_seen = r.created_at;
           if (!dev.first_seen || r.created_at < dev.first_seen) dev.first_seen = r.created_at;
@@ -422,31 +806,71 @@
       const totalInstalls = Object.keys(deviceMap).length;
       const returningDevices = Object.values(deviceMap).filter(d => d.total_sessions > 1 || d.total_translations > 1).length;
       const retentionRate = totalInstalls > 0 ? Math.round((returningDevices / totalInstalls) * 100) : 0;
+      const dauRatio = totalInstalls > 0 ? Math.round((devices24h.size / totalInstalls) * 100) : 0;
 
-      const translations = rows.filter(r => r.event_type === 'translation');
+      // Filtered translations analysis
+      const translations = filteredRows.filter(r => r.event_type === 'translation');
       const totalTranslations = translations.length;
       const offlineCount = translations.filter(r => r.mode === 'offline_nmt' || r.mode === 'offline_tm').length;
       const onlineCount = translations.filter(r => r.mode === 'server_api').length;
       const voiceCount = translations.filter(r => r.input_type === 'voice').length;
       const textCount = translations.filter(r => r.input_type === 'text').length;
-      const ttsCount = rows.filter(r => r.event_type === 'tts_played').length;
+      const ttsCount = filteredRows.filter(r => r.event_type === 'tts_played').length;
 
-      const latencies = translations.map(r => r.latency_ms).filter(ms => ms > 0);
-      const avgLatency = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0;
-      const offlinePct = totalTranslations > 0 ? Math.round((offlineCount / totalTranslations) * 100) : 0;
+      const offlinePct = totalTranslations > 0 ? Math.round((offlineCount / totalTranslations) * 100) : (totalTranslations === 0 ? 100 : 0);
       const voiceShare = totalTranslations > 0 ? Math.round((voiceCount / totalTranslations) * 100) : 0;
 
+      // Latencies and percentiles
+      const latencies = translations.map(r => r.latency_ms).filter(ms => ms > 0).sort((a, b) => a - b);
+      const avgLatency = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0;
+      const p50 = latencies.length ? latencies[Math.floor(latencies.length * 0.5)] : 0;
+      const p95 = latencies.length ? latencies[Math.floor(latencies.length * 0.95)] : 0;
+
+      // Bandwidth saved estimation (~18 KB per translation)
+      const bandwidthSavedKb = Math.round(offlineCount * 18.5);
+
+      // Total estimated audio duration in seconds
+      let totalAudioSec = 0;
+      translations.forEach(r => {
+        if (r.input_type === 'voice') {
+          const dur = (r.metadata && r.metadata.audio_duration_sec) ? parseFloat(r.metadata.audio_duration_sec) : 2.5;
+          totalAudioSec += dur;
+        }
+      });
+
+      // Language pairs
       const langPairs = {};
       translations.forEach(r => {
-        const pair = `${(r.source_lang || '?').toUpperCase()} ➔ ${(r.target_lang || '?').toUpperCase()}`;
+        const src = (r.source_lang || 'amh').toUpperCase();
+        const tgt = (r.target_lang || 'orm').toUpperCase();
+        const pair = `${src} ➔ ${tgt}`;
         langPairs[pair] = (langPairs[pair] || 0) + 1;
+      });
+
+      // Scenario breakdown
+      const scenarios = {};
+      translations.forEach(r => {
+        const sc = r.scenario || 'general';
+        scenarios[sc] = (scenarios[sc] || 0) + 1;
+      });
+
+      // OS & Locales
+      const osVersions = {};
+      const locales = {};
+      Object.values(deviceMap).forEach(d => {
+        const os = d.os_version || 'Android';
+        osVersions[os] = (osVersions[os] || 0) + 1;
+        const loc = d.locale || 'am_ET';
+        locales[loc] = (locales[loc] || 0) + 1;
       });
 
       return {
         total_installs: totalInstalls,
         active_today: devices24h.size,
         active_7d: devices7d.size,
+        dau_ratio: dauRatio,
         retention_rate: retentionRate,
+        returning_devices: returningDevices,
         total_translations: totalTranslations,
         offline_count: offlineCount,
         online_count: onlineCount,
@@ -455,138 +879,235 @@
         text_count: textCount,
         voice_share: voiceShare,
         avg_latency_ms: avgLatency,
-        unique_devices: totalInstalls,
+        p50_latency_ms: p50,
+        p95_latency_ms: p95,
+        latencies_list: latencies,
+        bandwidth_saved_kb: bandwidthSavedKb,
+        total_audio_sec: Math.round(totalAudioSec),
         tts_count: ttsCount,
         lang_pairs: langPairs,
-        device_inventory: Object.values(deviceMap).slice(0, 30),
-        recent_events: rows.slice(0, 30)
+        scenarios: scenarios,
+        os_versions: osVersions,
+        locales: locales,
+        device_inventory: Object.values(deviceMap),
+        filtered_rows: filteredRows
       };
     }
 
     function renderDashboard(data) {
+      // 1. KPI Stats
       document.getElementById('stat-total-installs').textContent = Number(data.total_installs || 0).toLocaleString();
+      document.getElementById('stat-installs-badge').textContent = `${data.total_installs} Registered`;
+      
       document.getElementById('stat-active-today').textContent = Number(data.active_today || 0).toLocaleString();
-      document.getElementById('stat-active-7d').textContent = `• ${data.active_7d || 0} active this week`;
+      document.getElementById('stat-active-7d').textContent = `${data.active_7d || 0} WAU (7d)`;
+      document.getElementById('stat-dau-ratio').textContent = `${data.dau_ratio || 0}% DAU`;
+
       document.getElementById('stat-retention-rate').textContent = `${data.retention_rate || 0}%`;
+      document.getElementById('stat-returning-count').textContent = `${data.returning_devices || 0} dev`;
 
       document.getElementById('stat-total-translations').textContent = Number(data.total_translations || 0).toLocaleString();
       document.getElementById('stat-voice-share').textContent = `${data.voice_share || 0}% Voice`;
+
       document.getElementById('stat-offline-pct').textContent = `${data.offline_percentage || 0}%`;
-      document.getElementById('stat-offline-count').textContent = Number(data.offline_count || 0).toLocaleString();
-      document.getElementById('stat-avg-latency').textContent = `${data.avg_latency_ms || 0} ms`;
-      document.getElementById('stat-tts-count').textContent = Number(data.tts_count || 0).toLocaleString();
+      document.getElementById('stat-offline-count').textContent = `${Number(data.offline_count || 0).toLocaleString()} Edge`;
+      document.getElementById('stat-bandwidth-saved').textContent = `~${data.bandwidth_saved_kb} KB saved`;
 
-      // Device Fleet Table
-      renderFleetTable(data.device_inventory || []);
+      document.getElementById('stat-avg-latency').textContent = data.avg_latency_ms || 0;
+      document.getElementById('stat-p50-latency').textContent = `P50: ${data.p50_latency_ms || 0} ms`;
+      document.getElementById('latency-p95-badge').textContent = `P95: ${data.p95_latency_ms || 0} ms`;
 
-      // Charts
-      renderLangChart(data.lang_pairs || {});
-      renderModeChart(data.offline_count || 0, data.online_count || 0);
-
-      // Activity Table
-      renderTable(data.recent_events || []);
-    }
-
-    function renderFleetTable(fleet) {
-      const tbody = document.getElementById('device-fleet-table-body');
-      const countBadge = document.getElementById('device-fleet-count');
-      if (countBadge) countBadge.textContent = `${fleet.length} Installed Devices`;
-      if (!tbody) return;
-
-      if (!fleet || fleet.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-neutral-500">No registered mobile devices yet. Install and launch LISAN on your device to register!</td></tr>`;
-        return;
+      const latencyTag = document.getElementById('stat-latency-tag');
+      if (latencyTag) {
+        if (data.avg_latency_ms <= 350) {
+          latencyTag.textContent = '⚡ Edge Instant';
+          latencyTag.className = 'px-1.5 py-0.5 rounded bg-brand-acid/20 text-brand-acid font-mono text-[10px]';
+        } else if (data.avg_latency_ms <= 750) {
+          latencyTag.textContent = '⏱️ Sub-second';
+          latencyTag.className = 'px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-mono text-[10px]';
+        } else {
+          latencyTag.textContent = '☁️ Cloud Pipeline';
+          latencyTag.className = 'px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 font-mono text-[10px]';
+        }
       }
 
-      tbody.innerHTML = fleet.map(dev => {
-        const firstTime = dev.first_seen ? new Date(dev.first_seen).toLocaleDateString() : '--';
-        const statusBadge = dev.is_active_today
-          ? `<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">🟢 Active Today</span>`
-          : `<span class="px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-400">⚪ Idle</span>`;
+      document.getElementById('stat-audio-time').textContent = `${data.total_audio_sec || 0} sec`;
+      document.getElementById('stat-tts-total').textContent = Number(data.tts_count || 0).toLocaleString();
+      document.getElementById('stat-edge-savings').textContent = `${data.bandwidth_saved_kb} KB`;
+      document.getElementById('total-events-count').textContent = data.filtered_rows.length;
 
-        return `
-          <tr class="hover:bg-brand-cardHover/60 transition">
-            <td class="py-2.5 px-4 font-bold text-white text-[11px]">${dev.device_id}</td>
-            <td class="py-2.5 px-4 text-neutral-300 capitalize text-xs">${dev.platform} <span class="text-[10px] text-neutral-400">(${dev.os_version.substring(0, 16)})</span></td>
-            <td class="py-2.5 px-4 text-neutral-200">${dev.locale}</td>
-            <td class="py-2.5 px-4 text-neutral-400">${dev.timezone}</td>
-            <td class="py-2.5 px-4 text-brand-acid font-bold">${dev.total_sessions || 1}</td>
-            <td class="py-2.5 px-4 text-brand-orange font-bold">${dev.total_translations || 0}</td>
-            <td class="py-2.5 px-4 text-neutral-400 text-[11px]">${firstTime}</td>
-            <td class="py-2.5 px-4">${statusBadge}</td>
-          </tr>
-        `;
-      }).join('');
+      const pipelineTag = document.getElementById('pipeline-dominant-tag');
+      if (pipelineTag) {
+        pipelineTag.textContent = `${data.offline_percentage}% Edge Offline`;
+      }
+
+      // 2. Hardware Demographics
+      renderDemographics(data.os_versions, data.locales);
+
+      // 3. Charts
+      renderTimelineChart(data.filtered_rows);
+      renderModeChart(data.offline_count, data.online_count, data.voice_count, data.text_count);
+      renderLangChart(data.lang_pairs);
+      renderLatencyDistChart(data.latencies_list);
+      renderScenarioChart(data.scenarios);
+
+      // 4. Tables
+      renderFleetTable(data.device_inventory);
+      renderTelemetryTable(data.filtered_rows);
+
+      lucide.createIcons();
     }
 
-    function renderLangChart(pairs) {
-      const ctx = document.getElementById('langPairsChart');
+    function renderDemographics(osMap, localeMap) {
+      const osListEl = document.getElementById('os-versions-list');
+      const localesListEl = document.getElementById('locales-list');
+      const osKeys = Object.keys(osMap);
+      const locKeys = Object.keys(localeMap);
+
+      document.getElementById('platform-count-tag').textContent = `${osKeys.length} OS Versions`;
+      document.getElementById('locales-count-tag').textContent = `${locKeys.length} Locales`;
+
+      const totalOs = Object.values(osMap).reduce((a, b) => a + b, 0) || 1;
+      if (osListEl && osKeys.length > 0) {
+        osListEl.innerHTML = osKeys.slice(0, 3).map(os => {
+          const count = osMap[os];
+          const pct = Math.round((count / totalOs) * 100);
+          return `
+            <div>
+              <div class="flex justify-between text-neutral-300 font-mono text-[11px] mb-1">
+                <span>${os}</span>
+                <span class="text-brand-acid font-bold">${pct}%</span>
+              </div>
+              <div class="w-full bg-brand-border rounded-full h-1.5"><div class="bg-brand-acid h-1.5 rounded-full" style="width: ${pct}%"></div></div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      const totalLoc = Object.values(localeMap).reduce((a, b) => a + b, 0) || 1;
+      if (localesListEl && locKeys.length > 0) {
+        localesListEl.innerHTML = locKeys.slice(0, 3).map(loc => {
+          const count = localeMap[loc];
+          const pct = Math.round((count / totalLoc) * 100);
+          let label = loc;
+          if (loc.startsWith('am')) label = `${loc} (Amharic)`;
+          else if (loc.startsWith('om')) label = `${loc} (Oromo)`;
+          else if (loc.startsWith('ti')) label = `${loc} (Tigrinya)`;
+          else if (loc.startsWith('so')) label = `${loc} (Somali)`;
+
+          return `
+            <div>
+              <div class="flex justify-between text-neutral-300 font-mono text-[11px] mb-1">
+                <span>${label}</span>
+                <span class="text-brand-orange font-bold">${pct}%</span>
+              </div>
+              <div class="w-full bg-brand-border rounded-full h-1.5"><div class="bg-brand-orange h-1.5 rounded-full" style="width: ${pct}%"></div></div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    // Chart 1: Activity Timeline
+    function renderTimelineChart(events) {
+      const ctx = document.getElementById('timelineChart');
       if (!ctx) return;
 
-      const labels = Object.keys(pairs).slice(0, 8);
-      const values = labels.map(k => pairs[k]);
-
-      if (labels.length === 0) {
-        labels.push('AMH ➔ ORM', 'ENG ➔ AMH', 'ORM ➔ ENG', 'TIR ➔ ENG', 'SOM ➔ ENG');
-        values.push(0, 0, 0, 0, 0);
+      const hourlyMap = {};
+      const now = new Date();
+      // 8 recent buckets
+      for (let i = 7; i >= 0; i--) {
+        const d = new Date(now.getTime() - i * 3 * 60 * 60 * 1000);
+        const label = `${d.getHours()}:00`;
+        hourlyMap[label] = { translations: 0, installs: 0 };
       }
 
-      if (langChartInstance) {
-        langChartInstance.destroy();
-      }
+      events.forEach(e => {
+        if (!e.created_at) return;
+        const d = new Date(e.created_at);
+        const hour = `${d.getHours()}:00`;
+        if (hourlyMap[hour]) {
+          if (e.event_type === 'translation') hourlyMap[hour].translations++;
+          if (e.event_type === 'app_install') hourlyMap[hour].installs++;
+        }
+      });
 
-      langChartInstance = new Chart(ctx, {
-        type: 'bar',
+      const labels = Object.keys(hourlyMap);
+      const transValues = labels.map(l => hourlyMap[l].translations);
+      const installValues = labels.map(l => hourlyMap[l].installs);
+
+      if (timelineChartInstance) timelineChartInstance.destroy();
+
+      timelineChartInstance = new Chart(ctx, {
+        type: 'line',
         data: {
           labels: labels,
-          datasets: [{
-            label: 'Translations Count',
-            data: values,
-            backgroundColor: 'rgba(240, 90, 54, 0.85)',
-            hoverBackgroundColor: 'rgba(240, 90, 54, 1.0)',
-            borderRadius: 6,
-          }]
+          datasets: [
+            {
+              label: 'Translations',
+              data: transValues,
+              borderColor: '#F05A36',
+              backgroundColor: 'rgba(240, 90, 54, 0.15)',
+              fill: true,
+              tension: 0.4,
+              borderWidth: 2.5,
+              pointBackgroundColor: '#F05A36',
+              pointRadius: 3,
+            },
+            {
+              label: 'Device Installs',
+              data: installValues,
+              borderColor: '#D8F171',
+              backgroundColor: 'rgba(216, 241, 113, 0.1)',
+              fill: true,
+              tension: 0.4,
+              borderWidth: 2,
+              pointBackgroundColor: '#D8F171',
+              pointRadius: 3,
+            }
+          ]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
           plugins: {
-            legend: { display: false }
+            legend: {
+              labels: { color: '#D1D5DB', font: { family: 'Plus Jakarta Sans', size: 11 } }
+            }
           },
           scales: {
             x: {
-              grid: { color: '#2B322B' },
-              ticks: { color: '#9CA3AF', font: { family: 'JetBrains Mono' } }
+              grid: { color: '#1F261F' },
+              ticks: { color: '#9CA3AF', font: { family: 'JetBrains Mono', size: 10 } }
             },
             y: {
-              grid: { color: '#2B322B' },
-              ticks: { color: '#9CA3AF', stepSize: 1, font: { family: 'JetBrains Mono' } }
+              grid: { color: '#1F261F' },
+              ticks: { color: '#9CA3AF', stepSize: 1, font: { family: 'JetBrains Mono', size: 10 } }
             }
           }
         }
       });
     }
 
-    function renderModeChart(offline, online) {
+    // Chart 2: Execution Mode & Modality Doughnut
+    function renderModeChart(offline, online, voice, text) {
       const ctx = document.getElementById('modeChart');
       if (!ctx) return;
+      if (modeChartInstance) modeChartInstance.destroy();
 
-      if (modeChartInstance) {
-        modeChartInstance.destroy();
-      }
-
-      const total = offline + online;
-      const dataValues = total > 0 ? [offline, online] : [1, 0];
+      const totalMode = offline + online;
+      const dataValues = totalMode > 0 ? [offline, online] : [1, 0];
 
       modeChartInstance = new Chart(ctx, {
         type: 'doughnut',
         data: {
-          labels: ['On-Device (Offline)', 'Server API (Cloud)'],
+          labels: ['Edge INT8 (Offline)', 'Cloud API (Online)'],
           datasets: [{
             data: dataValues,
             backgroundColor: ['#D8F171', '#F05A36'],
             borderWidth: 2,
-            borderColor: '#1C201C',
+            borderColor: '#161A16',
           }]
         },
         options: {
@@ -603,44 +1124,297 @@
       });
     }
 
-    function renderTable(events) {
+    // Chart 3: Directional Language Pair Flows
+    function renderLangChart(pairs) {
+      const ctx = document.getElementById('langPairsChart');
+      if (!ctx) return;
+
+      const sorted = Object.entries(pairs).sort((a, b) => b[1] - a[1]).slice(0, 7);
+      const labels = sorted.map(s => s[0]);
+      const values = sorted.map(s => s[1]);
+
+      document.getElementById('top-pair-count').textContent = `${sorted.length} Active Pairs`;
+
+      if (labels.length === 0) {
+        labels.push('AMH ➔ ORM', 'ENG ➔ AMH', 'ORM ➔ AMH', 'TIR ➔ ENG', 'SOM ➔ ENG');
+        values.push(1, 0, 0, 0, 0);
+      }
+
+      if (langChartInstance) langChartInstance.destroy();
+
+      langChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Volume',
+            data: values,
+            backgroundColor: 'rgba(240, 90, 54, 0.85)',
+            hoverBackgroundColor: 'rgba(240, 90, 54, 1.0)',
+            borderRadius: 6,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: {
+              grid: { color: '#1F261F' },
+              ticks: { color: '#9CA3AF', font: { family: 'JetBrains Mono', size: 10 } }
+            },
+            y: {
+              grid: { color: '#1F261F' },
+              ticks: { color: '#9CA3AF', stepSize: 1, font: { family: 'JetBrains Mono', size: 10 } }
+            }
+          }
+        }
+      });
+    }
+
+    // Chart 4: Latency Distribution Buckets
+    function renderLatencyDistChart(latencies) {
+      const ctx = document.getElementById('latencyDistChart');
+      if (!ctx) return;
+
+      let b1 = 0; // < 200ms
+      let b2 = 0; // 200-400ms
+      let b3 = 0; // 400-800ms
+      let b4 = 0; // > 800ms
+
+      latencies.forEach(ms => {
+        if (ms < 200) b1++;
+        else if (ms < 400) b2++;
+        else if (ms < 800) b3++;
+        else b4++;
+      });
+
+      if (latencyChartInstance) latencyChartInstance.destroy();
+
+      latencyChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['< 200ms (Instant)', '200-400ms (Edge)', '400-800ms (Normal)', '> 800ms (Cloud)'],
+          datasets: [{
+            data: [b1, b2, b3, b4],
+            backgroundColor: ['#D8F171', '#10B981', '#3B82F6', '#F05A36'],
+            borderRadius: 6,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: {
+              grid: { color: '#1F261F' },
+              ticks: { color: '#9CA3AF', font: { family: 'JetBrains Mono', size: 9 } }
+            },
+            y: {
+              grid: { color: '#1F261F' },
+              ticks: { color: '#9CA3AF', stepSize: 1, font: { family: 'JetBrains Mono', size: 10 } }
+            }
+          }
+        }
+      });
+    }
+
+    // Chart 5: Scenarios Breakdown
+    function renderScenarioChart(scenarios) {
+      const ctx = document.getElementById('scenarioChart');
+      if (!ctx) return;
+
+      const defaultKeys = ['clinic', 'kebele', 'market', 'general', 'police'];
+      const labels = defaultKeys.map(k => k.charAt(0).toUpperCase() + k.slice(1));
+      const values = defaultKeys.map(k => scenarios[k] || 0);
+
+      if (scenarioChartInstance) scenarioChartInstance.destroy();
+
+      scenarioChartInstance = new Chart(ctx, {
+        type: 'polarArea',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: values.every(v => v === 0) ? [1, 0, 0, 0, 0] : values,
+            backgroundColor: [
+              'rgba(240, 90, 54, 0.75)',
+              'rgba(216, 241, 113, 0.75)',
+              'rgba(59, 130, 246, 0.75)',
+              'rgba(16, 185, 129, 0.75)',
+              'rgba(168, 85, 247, 0.75)'
+            ],
+            borderColor: '#161A16',
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'right',
+              labels: { color: '#D1D5DB', font: { family: 'Plus Jakarta Sans', size: 10 } }
+            }
+          },
+          scales: {
+            r: {
+              grid: { color: '#262D26' },
+              ticks: { display: false }
+            }
+          }
+        }
+      });
+    }
+
+    // Fleet Inventory Table with filtering
+    function renderFleetTable(fleet) {
+      const tbody = document.getElementById('device-fleet-table-body');
+      const countBadge = document.getElementById('device-fleet-count');
+      if (countBadge) countBadge.textContent = `${fleet.length} Devices`;
+      if (!tbody) return;
+
+      if (!fleet || fleet.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-neutral-500">No mobile devices registered yet. Launch LISAN on your device to register!</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = fleet.map(dev => {
+        const firstTime = dev.first_seen ? new Date(dev.first_seen).toLocaleDateString() : '--';
+        const lastTime = dev.last_seen ? new Date(dev.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
+        const statusBadge = dev.is_active_today
+          ? `<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px]">🟢 Active Today</span>`
+          : `<span class="px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-400 text-[10px]">⚪ Idle</span>`;
+
+        return `
+          <tr class="hover:bg-brand-cardHover/70 transition">
+            <td class="py-2.5 px-4 font-bold text-white text-[11px] truncate max-w-[140px]" title="${dev.device_id}">${dev.device_id}</td>
+            <td class="py-2.5 px-4 text-neutral-300 capitalize text-xs">
+              <div class="font-medium text-white">${dev.hardware}</div>
+              <div class="text-[10px] text-neutral-500 font-mono">${dev.os_version}</div>
+            </td>
+            <td class="py-2.5 px-4 text-neutral-200 font-mono text-[11px]">${dev.locale}</td>
+            <td class="py-2.5 px-4 text-neutral-400 font-mono text-[11px]">${dev.timezone}</td>
+            <td class="py-2.5 px-4 text-brand-acid font-bold">${dev.total_sessions || 1}</td>
+            <td class="py-2.5 px-4 text-brand-orange font-bold">${dev.total_translations || 0}</td>
+            <td class="py-2.5 px-4 text-neutral-400 text-[11px]">${firstTime}</td>
+            <td class="py-2.5 px-4 text-neutral-300 text-[11px]">${lastTime}</td>
+            <td class="py-2.5 px-4">${statusBadge}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function filterFleetTable() {
+      const q = (document.getElementById('fleet-search-input').value || '').toLowerCase();
+      if (!q) {
+        renderFleetTable(currentFleetData);
+        return;
+      }
+      const filtered = currentFleetData.filter(d => 
+        (d.device_id || '').toLowerCase().includes(q) ||
+        (d.hardware || '').toLowerCase().includes(q) ||
+        (d.os_version || '').toLowerCase().includes(q) ||
+        (d.locale || '').toLowerCase().includes(q)
+      );
+      renderFleetTable(filtered);
+    }
+
+    // Live Telemetry Table
+    function renderTelemetryTable(events) {
       const tbody = document.getElementById('telemetry-table-body');
       if (!tbody) return;
 
       if (!events || events.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-neutral-500">No events logged yet. Open the LISAN app to start streaming telemetry!</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-neutral-500">No events logged yet.</td></tr>`;
         return;
       }
 
-      tbody.innerHTML = events.map(evt => {
+      tbody.innerHTML = events.slice(0, 35).map(evt => {
         const timeStr = evt.created_at ? new Date(evt.created_at).toLocaleTimeString() : '--:--:--';
         const modeBadge = evt.mode === 'server_api'
-          ? `<span class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">☁️ Cloud</span>`
-          : `<span class="px-2 py-0.5 rounded bg-brand-acid/20 text-brand-acid border border-brand-acid/30">⚡ On-Device</span>`;
+          ? `<span class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px]">☁️ Cloud</span>`
+          : `<span class="px-2 py-0.5 rounded bg-brand-acid/20 text-brand-acid border border-brand-acid/30 text-[10px]">⚡ Edge</span>`;
 
-        const inputBadge = evt.input_type === 'voice'
-          ? `<span class="text-brand-orange">🎙️ Voice STT</span>`
-          : (evt.event_type === 'app_install'
-              ? `<span class="text-emerald-400 font-bold">📲 Install</span>`
-              : `<span class="text-neutral-400">⌨️ Text</span>`);
+        let inputBadge = `<span class="text-neutral-400 text-[11px]">⌨️ Text</span>`;
+        if (evt.input_type === 'voice') {
+          inputBadge = `<span class="text-brand-orange font-semibold text-[11px]">🎙️ AfriHuBERT</span>`;
+        } else if (evt.event_type === 'app_install') {
+          inputBadge = `<span class="text-emerald-400 font-bold text-[11px]">📲 Install</span>`;
+        } else if (evt.event_type === 'tts_played') {
+          inputBadge = `<span class="text-purple-400 font-semibold text-[11px]">🔊 VITS TTS</span>`;
+        }
 
         const pair = evt.source_lang && evt.target_lang
           ? `${evt.source_lang.toUpperCase()} ➔ ${evt.target_lang.toUpperCase()}`
           : '—';
 
+        const jsonStr = encodeURIComponent(JSON.stringify(evt, null, 2));
+
         return `
-          <tr class="hover:bg-brand-cardHover/60 transition">
-            <td class="py-2.5 px-4 text-neutral-400">${timeStr}</td>
+          <tr class="hover:bg-brand-cardHover/70 transition">
+            <td class="py-2.5 px-4 text-neutral-400 text-[11px]">${timeStr}</td>
             <td class="py-2.5 px-4 text-neutral-300 font-mono text-[11px] truncate max-w-[120px]" title="${evt.device_id || ''}">${(evt.device_id || 'unknown').substring(0, 14)}</td>
-            <td class="py-2.5 px-4 font-semibold text-white capitalize">${evt.event_type || 'event'}</td>
-            <td class="py-2.5 px-4 text-neutral-200 font-bold">${pair}</td>
+            <td class="py-2.5 px-4 font-semibold text-white capitalize text-[11px]">${evt.event_type || 'event'}</td>
+            <td class="py-2.5 px-4 text-neutral-200 font-bold text-[11px]">${pair}</td>
             <td class="py-2.5 px-4">${inputBadge}</td>
             <td class="py-2.5 px-4">${modeBadge}</td>
-            <td class="py-2.5 px-4 text-neutral-300 font-mono">${evt.latency_ms ? evt.latency_ms + ' ms' : '—'}</td>
-            <td class="py-2.5 px-4 text-neutral-400 uppercase text-[10px]">${evt.platform || 'android'}</td>
+            <td class="py-2.5 px-4 text-neutral-300 font-mono text-[11px]">${evt.latency_ms ? evt.latency_ms + ' ms' : '—'}</td>
+            <td class="py-2.5 px-4 text-neutral-400 capitalize text-[11px]">${evt.scenario || 'general'}</td>
+            <td class="py-2.5 px-4 text-right">
+              <button onclick="inspectPayload('${jsonStr}')" class="px-2 py-0.5 rounded bg-brand-border text-neutral-300 hover:text-white hover:bg-neutral-700 text-[10px] font-mono transition">
+                Inspect
+              </button>
+            </td>
           </tr>
         `;
       }).join('');
+    }
+
+    // JSON Payload Modal
+    function inspectPayload(encodedJson) {
+      try {
+        const decoded = decodeURIComponent(encodedJson);
+        document.getElementById('modal-json-content').textContent = decoded;
+        document.getElementById('payload-modal').classList.remove('hidden');
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function closePayloadModal() {
+      document.getElementById('payload-modal').classList.add('hidden');
+    }
+
+    // CSV Exporter
+    function exportCSV() {
+      if (!currentRawEvents || currentRawEvents.length === 0) {
+        alert('No data available to export.');
+        return;
+      }
+
+      const headers = ['id', 'device_id', 'event_type', 'source_lang', 'target_lang', 'input_type', 'mode', 'latency_ms', 'scenario', 'platform', 'created_at'];
+      const rows = currentRawEvents.map(e => [
+        e.id || '',
+        `"${e.device_id || ''}"`,
+        e.event_type || '',
+        e.source_lang || '',
+        e.target_lang || '',
+        e.input_type || '',
+        e.mode || '',
+        e.latency_ms || 0,
+        e.scenario || '',
+        e.platform || '',
+        e.created_at || ''
+      ]);
+
+      const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `lisan_telemetry_export_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
 
     function updateAutoRefresh() {
@@ -651,7 +1425,6 @@
       }
     }
 
-    // Initial load
     window.addEventListener('DOMContentLoaded', () => {
       lucide.createIcons();
       fetchAnalytics();
