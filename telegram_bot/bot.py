@@ -357,10 +357,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton("📊 Dataset Stats", callback_data="menu_stats"),
-            InlineKeyboardButton("📈 Community Reviews", callback_data="menu_analytics"),
+            InlineKeyboardButton("📈 Live App Analytics", callback_data="menu_app_analytics"),
         ],
         [
-            InlineKeyboardButton("📱 App Telemetry & Metrics", callback_data="menu_app_analytics"),
+            InlineKeyboardButton("👥 Community Reviews", callback_data="menu_community_reviews"),
             InlineKeyboardButton("🌐 Quick Translate", callback_data="menu_translate"),
         ],
         [
@@ -786,11 +786,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "menu_about":
         await about_command(update, context)
         return
-    elif data == "menu_analytics":
-        await analytics_command(update, context)
-        return
-    elif data == "menu_app_analytics":
+    elif data in ("menu_analytics", "menu_app_analytics"):
         await app_analytics_command(update, context)
+        return
+    elif data == "menu_community_reviews":
+        await analytics_command(update, context)
         return
     elif data == "menu_progress":
         await progress_command(update, context)
@@ -1127,9 +1127,11 @@ def create_bot_application():
     app.add_handler(CommandHandler("goal", progress_command))
     app.add_handler(CommandHandler("leaderboard", leaderboard_command))
     app.add_handler(CommandHandler("about", about_command))
-    app.add_handler(CommandHandler("analytics", analytics_command))
+    app.add_handler(CommandHandler("analytics", app_analytics_command))
     app.add_handler(CommandHandler("app_analytics", app_analytics_command))
     app.add_handler(CommandHandler("telemetry", app_analytics_command))
+    app.add_handler(CommandHandler("community", analytics_command))
+    app.add_handler(CommandHandler("reviews", analytics_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
