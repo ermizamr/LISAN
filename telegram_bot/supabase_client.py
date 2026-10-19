@@ -662,8 +662,30 @@ def get_app_telemetry_summary() -> dict:
         except Exception as e:
             print(f"[Supabase App Analytics Fallback Error] {e}")
 
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    cutoff_24h = now - timedelta(hours=24)
+    cutoff_7d = now - timedelta(days=7)
+
+    devices_24h = set()
+    devices_7d = set()
+
+    for r in rows:
+        did = r.get("device_id")
+        cat = r.get("created_at")
+        if cat and did:
+            try:
+                dt = datetime.fromisoformat(cat.replace("Z", "+00:00"))
+                if dt >= cutoff_24h:
+                    devices_24h.add(did)
+                if dt >= cutoff_7d:
+                    devices_7d.add(did)
+            except Exception:
+                pass
+
     total_events = len(rows)
     translation_events = [r for r in rows if r.get("event_type") == "translation"]
+    install_events = [r for r in rows if r.get("event_type") == "app_install"]
     total_translations = len(translation_events)
     online_count = sum(1 for r in translation_events if r.get("mode") == "server_api")
     offline_count = sum(1 for r in translation_events if r.get("mode") in ("offline_nmt", "offline_tm"))
@@ -674,11 +696,55 @@ def get_app_telemetry_summary() -> dict:
     latencies = [r.get("latency_ms", 0) for r in translation_events if r.get("latency_ms", 0) > 0]
     avg_latency = round(sum(latencies) / len(latencies), 1) if latencies else 0.0
 
-    devices = set(r.get("device_id") for r in rows if r.get("device_id"))
+    devices = set(r.get("device_id") for r in rows if r.get("device_id") and r.get("device_id") != "unknown_device")
     platforms = {}
+    locales = {}
+    timezones = {}
+
     for r in rows:
         p = r.get("platform", "unknown")
         platforms[p] = platforms.get(p, 0) + 1
+        meta = r.get("metadata") or {}
+        loc = meta.get("locale")
+        if loc and loc != "unknown":
+            locales[loc] = locales.get(loc, 0) + 1
+        tz = meta.get("timezone")
+        if tz and tz != "unknown":
+            timezones[tz] = timezones.get(tz, 0) + 1
+
+    # Device Fleet Inventory Mapping
+    device_map = {}
+    for r in rows:
+        did = r.get("device_id")
+        if not did or did == "unknown_device":
+            continue
+        if did not in device_map:
+            meta = r.get("metadata") or {}
+            device_map[did] = {
+                "device_id": did,
+                "platform": r.get("platform", "android"),
+                "os_version": meta.get("os_version") or "Mobile OS",
+                "locale": meta.get("locale") or "am_ET",
+                "timezone": meta.get("timezone") or "EAT",
+                "first_seen": r.get("created_at"),
+                "last_seen": r.get("created_at"),
+                "total_translations": 0,
+                "total_sessions": 0,
+                "is_active_today": did in devices_24h,
+            }
+        dev = device_map[did]
+        if r.get("event_type") == "translation":
+            dev["total_translations"] += 1
+        elif r.get("event_type") == "session_start":
+            dev["total_sessions"] += 1
+        if r.get("created_at"):
+            if not dev["last_seen"] or r["created_at"] > dev["last_seen"]:
+                dev["last_seen"] = r["created_at"]
+            if not dev["first_seen"] or r["created_at"] < dev["first_seen"]:
+                dev["first_seen"] = r["created_at"]
+
+    returning_devices = sum(1 for d in device_map.values() if d["total_sessions"] > 1 or d["total_translations"] > 1)
+    retention_rate = round((returning_devices / len(device_map) * 100), 1) if device_map else 0.0
 
     lang_pairs = {}
     for r in translation_events:
@@ -691,6 +757,10 @@ def get_app_telemetry_summary() -> dict:
 
     return {
         "total_events": total_events,
+        "total_installs": max(len(devices), len(install_events)),
+        "active_today": len(devices_24h),
+        "active_7d": len(devices_7d),
+        "retention_rate": retention_rate,
         "total_translations": total_translations,
         "online_count": online_count,
         "offline_count": offline_count,
@@ -701,7 +771,10 @@ def get_app_telemetry_summary() -> dict:
         "avg_latency_ms": avg_latency,
         "unique_devices": len(devices),
         "platforms": platforms,
+        "locales": locales,
+        "timezones": timezones,
         "lang_pairs": dict(sorted(lang_pairs.items(), key=lambda x: x[1], reverse=True)[:8]),
+        "device_inventory": list(device_map.values())[:30],
         "recent_events": rows[:25],
     }
 

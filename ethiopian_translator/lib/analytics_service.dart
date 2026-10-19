@@ -108,6 +108,11 @@ class AnalyticsService {
   String _deviceId = '';
   String _sessionId = '';
   String _platformName = 'unknown';
+  String _osVersion = 'unknown';
+  String _localeName = 'unknown';
+  String _timezoneName = 'unknown';
+  int _sessionCount = 1;
+  int _daysSinceInstall = 0;
   bool _initialized = false;
   bool _isFlushing = false;
   Timer? _periodicSyncTimer;
@@ -115,9 +120,12 @@ class AnalyticsService {
   final List<AnalyticsEvent> _queue = [];
   File? _queueFile;
   File? _deviceIdFile;
+  File? _metaFile;
 
   String get deviceId => _deviceId;
   String get sessionId => _sessionId;
+  int get sessionCount => _sessionCount;
+  int get daysSinceInstall => _daysSinceInstall;
   int get queuedEventsCount => _queue.length;
 
   /// Initializes device identifier, loads unsent offline queue, and logs session start.
@@ -129,18 +137,56 @@ class AnalyticsService {
       _detectPlatform();
       _sessionId = 'sess_${DateTime.now().millisecondsSinceEpoch}_${_randomHex(6)}';
 
+      bool isFirstInstall = false;
+      DateTime installTime = DateTime.now().toUtc();
+
       if (!kIsWeb) {
+        _osVersion = Platform.operatingSystemVersion;
+        _localeName = Platform.localeName;
+        _timezoneName = DateTime.now().timeZoneName;
+
         final docsDir = await getApplicationDocumentsDirectory();
         _deviceIdFile = File('${docsDir.path}/lisan_device_id.txt');
         _queueFile = File('${docsDir.path}/lisan_analytics_queue.json');
+        _metaFile = File('${docsDir.path}/lisan_device_meta.json');
 
         if (await _deviceIdFile!.exists()) {
           _deviceId = (await _deviceIdFile!.readAsString()).trim();
         }
+
         if (_deviceId.isEmpty) {
           _deviceId = 'dev_${DateTime.now().millisecondsSinceEpoch}_${_randomHex(8)}';
           await _deviceIdFile!.writeAsString(_deviceId);
+          isFirstInstall = true;
         }
+
+        int sessions = 1;
+        if (await _metaFile!.exists()) {
+          try {
+            final content = await _metaFile!.readAsString();
+            final meta = jsonDecode(content) as Map<String, dynamic>;
+            sessions = ((meta['session_count'] as num?)?.toInt() ?? 0) + 1;
+            if (meta['install_time'] != null) {
+              installTime = DateTime.tryParse(meta['install_time'] as String) ?? installTime;
+            }
+          } catch (_) {}
+        } else {
+          isFirstInstall = true;
+        }
+
+        _sessionCount = sessions;
+        _daysSinceInstall = DateTime.now().toUtc().difference(installTime).inDays;
+
+        // Persist updated metadata
+        await _metaFile!.writeAsString(jsonEncode({
+          'device_id': _deviceId,
+          'install_time': installTime.toIso8601String(),
+          'session_count': _sessionCount,
+          'last_seen': DateTime.now().toUtc().toIso8601String(),
+          'os_version': _osVersion,
+          'locale': _localeName,
+          'timezone': _timezoneName,
+        }));
 
         // Restore offline queue
         if (await _queueFile!.exists()) {
@@ -157,9 +203,21 @@ class AnalyticsService {
         }
       } else {
         _deviceId = 'web_${DateTime.now().millisecondsSinceEpoch}_${_randomHex(8)}';
+        _osVersion = 'Web Browser';
+        _localeName = 'browser';
+        _timezoneName = DateTime.now().timeZoneName;
       }
 
-      // Track session start
+      // 1. If this is the very first app launch on this device, log app_install
+      if (isFirstInstall) {
+        trackAppInstall(
+          osVersion: _osVersion,
+          locale: _localeName,
+          timezone: _timezoneName,
+        );
+      }
+
+      // 2. Track session start with retention metrics
       trackSessionStart();
 
       // Start periodic sync every 45 seconds to upload queued events when online
@@ -232,7 +290,32 @@ class AnalyticsService {
   // Public Event Trackers
   // --------------------------------------------------------------------------
 
-  /// Logs app session launch.
+  /// Logs when the app is installed and opened for the first time on a device.
+  void trackAppInstall({
+    required String osVersion,
+    required String locale,
+    required String timezone,
+    Map<String, dynamic>? extra,
+  }) {
+    final event = AnalyticsEvent(
+      id: 'evt_${_randomHex(10)}',
+      deviceId: _deviceId,
+      sessionId: _sessionId,
+      eventType: 'app_install',
+      platform: _platformName,
+      metadata: {
+        'first_open': true,
+        'os_version': osVersion,
+        'locale': locale,
+        'timezone': timezone,
+        'app_version': '1.0.0',
+        if (extra != null) ...extra,
+      },
+    );
+    _enqueueEvent(event);
+  }
+
+  /// Logs app session launch with retention and hardware demographics.
   void trackSessionStart({Map<String, dynamic>? metadata}) {
     final event = AnalyticsEvent(
       id: 'evt_${_randomHex(10)}',
@@ -240,7 +323,14 @@ class AnalyticsService {
       sessionId: _sessionId,
       eventType: 'session_start',
       platform: _platformName,
-      metadata: metadata ?? {},
+      metadata: {
+        'session_number': _sessionCount,
+        'days_since_install': _daysSinceInstall,
+        'os_version': _osVersion,
+        'locale': _localeName,
+        'timezone': _timezoneName,
+        ...?metadata,
+      },
     );
     _enqueueEvent(event);
   }

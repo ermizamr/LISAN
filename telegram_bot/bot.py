@@ -628,11 +628,22 @@ async def app_analytics_command(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         pairs_text = "• <i>Awaiting initial mobile sessions...</i>"
 
+    installs = summary.get("total_installs", 0)
+    active_24h = summary.get("active_today", 0)
+    retention = summary.get("retention_rate", 0.0)
+    platforms = summary.get("platforms", {})
+    locales = summary.get("locales", {})
+
+    plat_str = ", ".join([f"{k}: {v}" for k, v in platforms.items()]) if platforms else "Android"
+    loc_str = ", ".join([f"{k}: {v}" for k, v in list(locales.items())[:3]]) if locales else "am_ET, om_ET"
+
     text = (
-        f"📱 <b>LISAN Mobile App Live Telemetry</b>\n"
+        f"📱 <b>LISAN Mobile App Analytics & Fleet</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📲 <b>Total Device Installs</b>: <code>{installs:,} devices</code>\n"
+        f"🟢 <b>Active Today (24h DAU)</b>: <code>{active_24h:,}</code>\n"
+        f"🔄 <b>Returning User Retention</b>: <code>{retention}%</code>\n"
         f"🔢 <b>Total Translations</b>: <code>{total_trans:,}</code>\n"
-        f"👥 <b>Active Devices</b>: <code>{devices:,}</code>\n"
         f"⚡ <b>Average Latency</b>: <code>{avg_lat} ms</code>\n"
         f"🔊 <b>Neural Voice (TTS)</b>: <code>{tts_cnt:,}</code>\n\n"
         f"🌐 <b>Offline vs Cloud Pipeline</b>:\n"
@@ -641,10 +652,13 @@ async def app_analytics_command(update: Update, context: ContextTypes.DEFAULT_TY
         f"🎙️ <b>Input Modality</b>:\n"
         f"• Voice (AfriHuBERT STT): <code>{voice_cnt:,}</code>\n"
         f"• Typed Text: <code>{text_cnt:,}</code>\n\n"
+        f"📱 <b>Platforms & Locales</b>:\n"
+        f"• OS: <code>{plat_str}</code>\n"
+        f"• Locales: <code>{loc_str}</code>\n\n"
         f"🗣️ <b>Top Directional Language Pairs</b>:\n"
         f"{pairs_text}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f'📊 <b>Web Dashboard</b>: <a href="http://127.0.0.1:8000/dashboard">Open Live Visual Hub</a>'
+        f'📊 <b>Web Hub</b>: <a href="https://lisan.ermizamr.tech/dashboard.html">lisan.ermizamr.tech/dashboard.html</a>'
     )
 
     keyboard = [
